@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A quiet clock and a simple stopwatch. Choose your time zone and enjoy a moment of focus.">
+  <title>Daylight — a little time</title>
+  <style>
+    :root{color-scheme:light;--paper:#f4f1e9;--ink:#242b28;--muted:#677269;--line:#d8dcd2;--green:#2e6047}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:var(--paper);color:var(--ink);font-family:Georgia,'Times New Roman',serif}
+    main{max-width:1000px;margin:auto;padding:44px 40px}header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:24px}
+    .brand{font-size:25px;letter-spacing:-1px}.brand span{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--green);margin-right:10px}.small{font:12px/1.5 system-ui,sans-serif;text-transform:uppercase;letter-spacing:2px;color:var(--muted)}
+    .clock{padding:72px 0 62px}.clock h1{font-size:clamp(54px,13vw,140px);font-weight:normal;font-variant-numeric:tabular-nums;letter-spacing:-.055em;line-height:1;margin:22px 0}.date{font:17px/1.6 system-ui,sans-serif;color:var(--muted)}
+    .zone{display:flex;align-items:center;gap:16px;margin-top:34px;font:13px system-ui,sans-serif}.zone select{max-width:100%;background:transparent;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:10px 25px 10px 0;color:var(--ink);font:inherit}
+    .lower{display:grid;grid-template-columns:1fr 1fr;gap:52px;border-top:1px solid var(--line);padding-top:35px}.lower h2{font-size:24px;font-weight:normal;margin:0 0 12px}.lower p{font-size:18px;line-height:1.65;color:var(--muted);max-width:310px}.stopwatch{font:38px/1.5 ui-monospace,monospace;font-variant-numeric:tabular-nums;letter-spacing:-2px;margin:17px 0}
+    button{border:1px solid var(--green);background:var(--green);color:#fff;border-radius:3px;padding:10px 22px;font:13px system-ui,sans-serif;cursor:pointer;min-width:90px}button.secondary{background:transparent;color:var(--green);margin-left:8px}button:hover{filter:brightness(.94)}button:focus-visible,select:focus-visible{outline:3px solid #cba364;outline-offset:4px}
+    footer{border-top:1px solid var(--line);margin-top:55px;padding-top:18px;font:11px/1.5 system-ui,sans-serif;letter-spacing:1px;color:var(--muted);display:flex;justify-content:space-between;gap:20px}noscript{font:15px system-ui,sans-serif;color:var(--muted)}
+    @media(max-width:600px){main{padding:28px 23px}.clock{padding:55px 0 38px}.lower{grid-template-columns:1fr;gap:28px}.clock h1{letter-spacing:-.065em}.brand{font-size:22px}header .small{font-size:10px}.zone{flex-wrap:wrap;gap:8px}footer{margin-top:38px}}
+    @media(prefers-color-scheme:dark){:root{color-scheme:dark;--paper:#202724;--ink:#eceee7;--muted:#a7b2a9;--line:#3d4941;--green:#80b89a}button{color:#18291f}}
+  </style>
+</head>
+<body>
+<main>
+  <header><div class="brand"><span aria-hidden="true"></span>daylight</div><div class="small">A little time, well spent</div></header>
+  <section class="clock" aria-label="Current time">
+    <div class="small">Here, now</div>
+    <h1><time id="clock">--:--:--</time></h1>
+    <div id="date" class="date">A moment to pause.</div>
+    <div class="zone"><label for="timezone">Time zone</label><select id="timezone"><option value="local">Your local time</option><option value="UTC">Coordinated Universal Time</option><option value="Asia/Shanghai">Shanghai</option><option value="Asia/Tokyo">Tokyo</option><option value="Europe/London">London</option><option value="Europe/Paris">Paris</option><option value="America/New_York">New York</option><option value="America/Los_Angeles">Los Angeles</option><option value="Australia/Sydney">Sydney</option></select></div>
+    <noscript>Enable JavaScript to display the clock and use the stopwatch.</noscript>
+  </section>
+  <div class="lower">
+    <section aria-label="Stopwatch"><div class="small">Make room for focus</div><div class="stopwatch" id="stopwatch" role="timer" aria-label="Elapsed time">00:00.0</div><button type="button" id="toggle">Start</button><button type="button" class="secondary" id="reset">Reset</button></section>
+    <section><h2>One thing at a time.</h2><p>Give the next small thing your full attention. The rest can wait a moment.</p></section>
+  </div>
+  <footer><span>DAYLIGHT / CLOCK &amp; STOPWATCH</span><span>Time from your device</span></footer>
+</main>
+<script>
+  'use strict';
+  const zone=document.getElementById('timezone'),clock=document.getElementById('clock'),date=document.getElementById('date');
+  let clockFormat,dateFormat;
+  function setZone(){const opts=zone.value==='local'?{}:{timeZone:zone.value};clockFormat=new Intl.DateTimeFormat('en-GB',{...opts,hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});dateFormat=new Intl.DateTimeFormat('en-GB',{...opts,weekday:'long',day:'numeric',month:'long',year:'numeric'});tick();}
+  function tick(){const now=new Date();clock.textContent=clockFormat.format(now);clock.dateTime=now.toISOString();date.textContent=dateFormat.format(now);}
+  zone.addEventListener('change',setZone);setZone();setInterval(tick,250);
+  const output=document.getElementById('stopwatch'),toggle=document.getElementById('toggle');
+  let running=false,elapsed=0,started=0;
+  function showElapsed(){const ms=elapsed+(running?performance.now()-started:0);const tenths=Math.floor(ms/100),seconds=Math.floor(tenths/10);output.textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0')+'.'+tenths%10;}
+  toggle.addEventListener('click',()=>{if(running){elapsed+=performance.now()-started;}else{started=performance.now();}running=!running;toggle.textContent=running?'Pause':'Resume';showElapsed();});
+  document.getElementById('reset').addEventListener('click',()=>{running=false;elapsed=0;toggle.textContent='Start';showElapsed();});
+  setInterval(showElapsed,100);
+</script>
+</body>
+</html>
