@@ -13,7 +13,7 @@ import uuid
 
 from . import state as registry
 from . import protocols, subscription, render, system, certificates
-from .transaction import Transaction, atomic, lock
+from .transaction import ManagementBusy, Transaction, atomic, lock
 
 
 def parser():
@@ -610,6 +610,13 @@ def main(argv=None):
                     from . import bootstrap
                     bootstrap.recover_acme()
                 execute(args)
+    except ManagementBusy as exc:
+        if getattr(args, "scheduled", False) and (args.command, args.action) in {
+                ("rules", "update"), ("cert", "sync")}:
+            output({"skipped": "management_busy", "retry": "next_timer"})
+            return 0
+        print("sb: " + str(exc), file=sys.stderr)
+        return 1
     except (ValueError, RuntimeError, OSError, KeyError) as exc:
         print("sb: " + str(exc), file=sys.stderr)
         return 1

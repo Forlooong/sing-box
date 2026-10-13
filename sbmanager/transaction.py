@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import errno
 import hashlib
 import json
 import os
@@ -14,6 +15,10 @@ import uuid
 import secrets
 
 from .state import logical_path, encode, REVOKED, SECRETS
+
+
+class ManagementBusy(RuntimeError):
+    """Another manager already owns the nonblocking global lock."""
 
 
 def atomic(path: Path, data: bytes, mode=0o600):
@@ -54,8 +59,10 @@ def lock(root=Path("/")):
             else:
                 import fcntl
                 fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except (OSError, BlockingIOError):
-            raise RuntimeError("Another sb operation holds the management lock") from None
+        except OSError as exc:
+            if exc.errno in {errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK}:
+                raise ManagementBusy("Another sb operation holds the management lock") from None
+            raise
         try:
             yield
         finally:

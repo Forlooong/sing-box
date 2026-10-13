@@ -1,8 +1,11 @@
 import json
 import hashlib
+import errno
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from sbmanager import state
 from sbmanager.transaction import Transaction, lock, atomic
@@ -34,6 +37,15 @@ class StateTests(unittest.TestCase):
 
 
 class TransactionTests(unittest.TestCase):
+    def test_lock_io_failure_is_not_classified_as_contention(self):
+        with tempfile.TemporaryDirectory() as temp:
+            backend = "msvcrt.locking" if os.name == "nt" else "fcntl.flock"
+            with mock.patch(backend, side_effect=OSError(errno.EIO, "Storage failure")):
+                with self.assertRaises(OSError) as raised:
+                    with lock(Path(temp)):
+                        self.fail("A failed lock must never enter the operation")
+            self.assertEqual(raised.exception.errno, errno.EIO)
+
     def test_interrupted_manual_rollback_remains_recoverable(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

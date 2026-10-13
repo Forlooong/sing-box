@@ -99,6 +99,33 @@ class CLITests(unittest.TestCase):
             self.invoke("cert", "deploy", "--lineage", "/etc/letsencrypt/live/unrelated.example.com")
             publish.assert_not_called()
 
+    def test_scheduled_tasks_skip_busy_lock_without_entering_operation(self):
+        from sbmanager.transaction import ManagementBusy, lock
+        before = (self.root / "etc/sb/state.json").read_bytes()
+        with lock(self.root), mock.patch.object(cli, "execute") as execute:
+            with self.assertRaises(ManagementBusy):
+                with lock(self.root):
+                    self.fail("The global management lock was not exclusive")
+            for command in (("rules", "update"), ("cert", "sync")):
+                with self.subTest(command=command):
+                    self.assertEqual(json.loads(self.invoke(*command, "--scheduled")),
+                                     {"skipped": "management_busy", "retry": "next_timer"})
+                    message = self.invoke(*command, ok=False)
+                    self.assertIn("management lock", message)
+                    self.assertNotIn("skipped", message)
+            execute.assert_not_called()
+        self.assertEqual(before, (self.root / "etc/sb/state.json").read_bytes())
+
+    def test_scheduled_tasks_still_fail_on_validation_and_io_errors(self):
+        import errno
+        for command in (("rules", "update"), ("cert", "sync")):
+            for error in (ValueError("Invalid candidate"), RuntimeError("Health check failed"),
+                          OSError(errno.EIO, "Storage failure")):
+                with self.subTest(command=command, error=type(error).__name__):
+                    with mock.patch.object(cli, "execute", side_effect=error):
+                        message = self.invoke(*command, "--scheduled", ok=False)
+                    self.assertNotIn("skipped", message)
+
     def test_certificate_renew_only_touches_managed_lineages_under_lock(self):
         from sbmanager import bootstrap
         from sbmanager.transaction import lock
