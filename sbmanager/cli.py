@@ -12,16 +12,22 @@ import sys
 import uuid
 
 from . import state as registry
-from . import protocols, subscription, render, system, certificates
+from . import protocols, subscription, render, system, certificates, helptext
 from .transaction import ManagementBusy, Transaction, atomic, lock
 
 
+class HelpParser(argparse.ArgumentParser):
+    def format_help(self):
+        return helptext.render() if self.prog == "sb" else super().format_help()
+
+
 def parser():
-    p = argparse.ArgumentParser(prog="sb", description="Nginx / sing-box / 私有订阅统一管理")
+    p = HelpParser(prog="sb", description="Nginx / sing-box / 私有订阅统一管理")
     p.add_argument("--root", type=Path, default=Path("/"), help=argparse.SUPPRESS)
     p.add_argument("--offline", action="store_true", help=argparse.SUPPRESS)
-    commands = p.add_subparsers(dest="command", required=True)
-    commands.add_parser("help", help="显示全部命令")
+    commands = p.add_subparsers(dest="command")
+    p.set_defaults(command="help", topic=None)
+    commands.add_parser("help", help="中文操作指南，例如 sb help sub").add_argument("topic", nargs="?", help="主题，例如 sub、node、domain")
     install = commands.add_parser("install", help="新安装；需要已解析到本机的两个域名")
     _install_arguments(install)
     commands.add_parser("status", help="显示脱敏配置与服务状态")
@@ -62,7 +68,11 @@ def parser():
         sub.add_argument("--public-address", action="append", default=[])
     retire = domain.add_parser("retire", help="明确停用域名别名；依赖它的节点须先停用")
     retire.add_argument("name")
-    sub = commands.add_parser("subscription", help="路径、令牌、模板、手工流量信息").add_subparsers(dest="action", required=True)
+    sub_parser = commands.add_parser("subscription", aliases=["sub"], help="订阅名称、地址、模板与流量信息（简写 sub）")
+    sub_parser.set_defaults(command="subscription")
+    sub = sub_parser.add_subparsers(dest="action", required=True)
+    name = sub.add_parser("name", help="查看或修改客户端显示的订阅名称，地址不变")
+    name.add_argument("name", nargs="?", metavar="名称", help="例如 \"最伟大的派送员\"；不填则查看当前名称")
     sub.add_parser("url", help="输出含密钥的 YAML 和 raw 地址")
     path = sub.add_parser("path")
     path.add_argument("prefix")
@@ -345,12 +355,7 @@ def _install(args, migrate=False):
 
 def execute(args):
     if args.command == "help":
-        parser().print_help()
-        print("\n常用命令：\n  sb node list|add|import|show|rename|set|credentials|enable|disable|remove|retire\n"
-              "  sb domain site|subscription|retire\n  sb subscription url|path|rotate|aliases|retire|template|metadata\n"
-              "  sb site show|set\n  sb rules status|update\n  sb cert status|renew|sync\n"
-              "  sb migrate inspect|apply\n  sb transaction list|recover|rollback\n"
-              "  sb update VERSION\n\n每个子命令都支持 --help；参数不会通过 shell 执行。")
+        print(helptext.render(args.topic), end="")
         return
     if args.command == "capabilities":
         output(protocols.capabilities())
@@ -475,6 +480,12 @@ def execute(args):
                 from . import bootstrap
                 extra.update(bootstrap.ensure_certificates(state))
     elif args.command == "subscription":
+        if args.action == "name":
+            if args.name is None:
+                output({"name": state["subscription"].get("name", registry.DEFAULT_SUBSCRIPTION_NAME)})
+                return
+            state["subscription"]["name"] = registry.subscription_name(args.name)
+            result.update(name=state["subscription"]["name"], message="订阅名称已更新，地址保持不变；已导入的客户端如仍显示旧名，请在客户端改名或重新导入")
         if args.action == "url":
             output(subscription.urls(state, secret))
             return

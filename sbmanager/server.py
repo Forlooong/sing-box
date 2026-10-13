@@ -39,10 +39,12 @@ def load_bundle(path):
     if bundle.get("listen_host") != "127.0.0.1" or not isinstance(bundle.get("listen_port"), int) or not 1024 <= bundle["listen_port"] <= 65535:
         raise ValueError("Runtime must listen on an unprivileged loopback port")
     headers = bundle.get("headers")
-    if not isinstance(headers, dict) or set(headers) - {"Profile-Update-Interval", "Subscription-Userinfo"}:
+    if not isinstance(headers, dict) or set(headers) - {
+            "Profile-Update-Interval", "Subscription-Userinfo", "Content-Disposition", "Profile-Title"}:
         raise ValueError("Unsupported runtime response header")
-    for value in headers.values():
-        if not isinstance(value, str) or len(value) > 500 or any(ord(c) < 32 or ord(c) > 126 for c in value):
+    for name, value in headers.items():
+        limit = 1024 if name in {"Content-Disposition", "Profile-Title"} else 500
+        if not isinstance(value, str) or len(value) > limit or any(ord(c) < 32 or ord(c) > 126 for c in value):
             raise ValueError("Invalid runtime response header")
     if headers.get("Profile-Update-Interval") != "12":
         raise ValueError("Invalid profile update interval")

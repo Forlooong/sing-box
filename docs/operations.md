@@ -7,13 +7,15 @@
 
 ```sh
 sb help
+sb help sub
+sb sub name "最伟大的派送员"
+sb sub name
 sb status
 sb check
 sb capabilities
 sb node list
 sb subscription url
 sb subscription path private/new-prefix
-sb subscription rotate
 sb domain subscription sub2.example.com
 sb domain site site2.example.com
 sb subscription aliases
@@ -27,7 +29,10 @@ sb domain retire old-site.example.com
 旧域名、路径和网站 SNI 默认继续可用，DNS 和证书续期仍须维持。旧节点仍引用旧网站
 SNI，新增节点采用新网站域名；修改后可用 `node set` 明确切换单个节点。
 
-`subscription rotate` 会立即替换所有别名使用的令牌。已成功提交的令牌撤销记录独立保存，
+`sub` 是 `subscription` 的简写。`sb` 或 `sb help` 显示中文指南，`sb help node` 等命令按操作分类说明。
+`sb sub name "自定义名称"` 修改客户端导入时的名称；已导入的本地名称可在客户端修改或重新导入。
+
+需要作废旧链接时使用 `sb sub rotate`，它会立即替换所有别名使用的令牌。已成功提交的令牌撤销记录独立保存，
 回滚其他配置也不会重新启用旧令牌。`subscription url` 和 `node show --uri` 明确输出密钥，
 不要复制到公开工单、日志或截图。
 迁移后若已撤销原令牌，脚本拒绝回滚到仍保存原令牌的旧独立订阅服务，防止旧地址复活。

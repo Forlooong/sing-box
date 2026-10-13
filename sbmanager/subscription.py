@@ -5,10 +5,12 @@ import hashlib
 import json
 from pathlib import Path
 import re
+from urllib.parse import quote
 
 import yaml
 
 from . import protocols
+from .state import DEFAULT_SUBSCRIPTION_NAME, subscription_name
 
 DIRECTORY = "/var/lib/sb/subscription"
 MANAGED_FIELDS = {"proxies", "proxy-groups", "proxy-providers", "rule-providers", "rules", "sub-rules"}
@@ -173,7 +175,11 @@ def compile_config(state, secrets, snapshot=None, *, local_rules=None):
 def render(state, secrets, snapshot=None):
     document, raw, omitted = compile_config(state, secrets, snapshot)
     clash = yaml.safe_dump(document, allow_unicode=True, sort_keys=False).encode("utf-8")
-    headers = {"Profile-Update-Interval": "12", **metadata_headers(state["subscription"].get("metadata", {}))}
+    name = subscription_name(state["subscription"].get("name", DEFAULT_SUBSCRIPTION_NAME))
+    headers = {"Profile-Update-Interval": "12",
+               "Content-Disposition": "attachment; filename=\"subscription\"; filename*=UTF-8''" + quote(name, safe=""),
+               "Profile-Title": "base64:" + base64.b64encode(name.encode("utf-8")).decode("ascii"),
+               **metadata_headers(state["subscription"].get("metadata", {}))}
     port = state["ports"]["sub_http"]
     if not isinstance(port, int) or isinstance(port, bool) or not 1024 <= port <= 65535:
         raise ValueError("Subscription HTTP port must be an unprivileged TCP port")

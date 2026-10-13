@@ -37,6 +37,28 @@ class CLITests(unittest.TestCase):
             for value in credential.values():
                 self.assertNotIn(value, self.invoke("node", "list"))
 
+    def test_subscription_name_command_preserves_urls_nodes_and_credentials(self):
+        before, credentials = state.load(self.root)
+        urls = self.invoke("subscription", "url")
+        result = json.loads(self.invoke("sub", "name", "最伟大的派送员"))
+        self.assertEqual(result["name"], "最伟大的派送员")
+        saved, after_credentials = state.load(self.root)
+        self.assertEqual(after_credentials, credentials)
+        self.assertEqual(saved["nodes"], before["nodes"])
+        self.assertEqual(self.invoke("sub", "url"), urls)
+        self.assertEqual(json.loads(self.invoke("subscription", "name")), {"name": "最伟大的派送员"})
+        self.assertEqual(json.loads(self.invoke("sub", "name")), {"name": "最伟大的派送员"})
+        self.invoke("transaction", "rollback", result["transaction"])
+        self.assertEqual(json.loads(self.invoke("sub", "name")), {"name": "我的订阅"})
+        self.assertEqual(self.invoke("sub", "url"), urls)
+
+    def test_invalid_subscription_name_does_not_publish(self):
+        before = (self.root / "etc/sb/state.json").read_bytes()
+        for name in ("", "   ", " name", "name ", "x\r\nInjected: true", "a/b", "a\\b", "我的''订阅", "x" * 81):
+            with self.subTest(name=name):
+                self.invoke("sub", "name", name, ok=False)
+                self.assertEqual((self.root / "etc/sb/state.json").read_bytes(), before)
+
     def test_domain_and_path_changes_keep_urls_then_retire(self):
         self.invoke("subscription", "path", "new/path")
         self.invoke("domain", "subscription", "new-sub.example.com")

@@ -14,6 +14,7 @@ STATE = "/etc/sb/state.json"
 SECRETS = "/etc/sb/secrets.json"
 REVOKED = "/etc/sb/revoked-tokens.json"
 TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\Z")
+DEFAULT_SUBSCRIPTION_NAME = "我的订阅"
 
 
 def domain(value: str) -> str:
@@ -53,6 +54,17 @@ def node_name(value: str) -> str:
     return value
 
 
+def subscription_name(value: str) -> str:
+    if (not isinstance(value, str) or not 1 <= len(value) <= 80 or value != value.strip()
+            or any(ord(c) < 32 or 127 <= ord(c) < 160 or 0xD800 <= ord(c) <= 0xDFFF
+                   or c in "/\\\u2028\u2029" for c in value)):
+        raise ValueError("订阅名称须为 1–80 个字符，不能含首尾空白、换行、控制字符或斜杠")
+    # Clash Verge Rev decodes filename* before splitting its RFC 5987 delimiter.
+    if "''" in value:
+        raise ValueError("为兼容客户端，订阅名称不能含连续两个英文单引号")
+    return value
+
+
 def logical_path(root: Path, name: str) -> Path:
     p = PurePosixPath(name)
     if not p.is_absolute() or ".." in p.parts or "\\" in name or "\0" in name:
@@ -88,7 +100,7 @@ def create(site: str, subscription: str, email: str, path="private"):
         "ports": {"reality": 2443, "site_tls": 8443, "sub_tls": 8444,
                   "sub_http": 8767, "hy2": 443},
         "site": {"root": "/var/www/sb-site"},
-        "subscription": {"prefix": prefix(path), "aliases": [], "metadata": {}, "template": {}},
+        "subscription": {"name": DEFAULT_SUBSCRIPTION_NAME, "prefix": prefix(path), "aliases": [], "metadata": {}, "template": {}},
         "nodes": [], "rules": {"enabled": True, "active_build": None},
         "legacy": {"entries": [], "files": {}, "services": []},
     }
@@ -105,6 +117,7 @@ def validate(state, secret):
     if set(sites) & set(subs) or len(sites) != len(set(sites)) or len(subs) != len(set(subs)):
         raise ValueError("Domain roles or aliases conflict")
     prefix(state["subscription"]["prefix"])
+    subscription_name(state["subscription"].get("name", DEFAULT_SUBSCRIPTION_NAME))
     if not TOKEN.fullmatch(secret.get("subscription_token", "")):
         raise ValueError("Invalid subscription token")
     ports = state["ports"]

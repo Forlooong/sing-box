@@ -7,6 +7,7 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
+from urllib.parse import unquote
 
 import yaml
 
@@ -23,6 +24,39 @@ def fixture():
 
 
 class SubscriptionTests(unittest.TestCase):
+    def test_http_import_uses_subscription_name_instead_of_token(self):
+        public, secrets = fixture()
+        public["subscription"]["name"] = "最伟大的派送员"
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "runtime.json"
+            path.write_bytes(subscription.render(public, secrets)[subscription.DIRECTORY + "/runtime.json"])
+            service = server.create_server(path, port=0)
+            thread = threading.Thread(target=service.serve_forever, daemon=True)
+            thread.start()
+            try:
+                for route in subscription.routes(public, secrets["subscription_token"]):
+                    for method in ("GET", "HEAD"):
+                        with self.subTest(artifact=route["artifact"], method=method):
+                            client = http.client.HTTPConnection("127.0.0.1", service.server_port, timeout=3)
+                            client.request(method, route["path"], headers={"Host": route["host"]})
+                            response = client.getresponse()
+                            headers = dict(response.getheaders())
+                            response.read()
+                            client.close()
+                            self.assertEqual(response.status, 200)
+                            # Clash Verge Rev prefers filename*, otherwise the last URL path segment.
+                            disposition = headers.get("Content-Disposition", "")
+                            filename = next((part.split("=", 1)[1] for part in disposition.split(";")
+                                             if part.strip().startswith("filename*=")), None)
+                            imported_name = unquote(filename).split("''")[-1] if filename else "<URL path fallback>"
+                            self.assertEqual(imported_name, "最伟大的派送员")
+                            self.assertEqual(base64.b64decode(headers["Profile-Title"].removeprefix("base64:")).decode(),
+                                             "最伟大的派送员")
+            finally:
+                service.shutdown()
+                service.server_close()
+                thread.join(3)
+
     def test_single_group_bundle_and_raw(self):
         public, secrets = fixture()
         files = subscription.render(public, secrets)
@@ -31,6 +65,41 @@ class SubscriptionTests(unittest.TestCase):
         raw = base64.b64decode(files[subscription.DIRECTORY + "/raw.txt"]).decode()
         self.assertTrue(raw.startswith("hysteria2://"))
         self.assertNotIn("private_key", raw)
+
+    def test_name_upgrade_defaults_encoding_limits_and_unsafe_headers(self):
+        public, secrets = fixture()
+        public["subscription"].pop("name", None)
+        state.validate(public, secrets)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "runtime.json"
+            for name in (None, "私人的订阅 ;\" 100%", "🚚" * 80):
+                if name is not None:
+                    public["subscription"]["name"] = name
+                path.write_bytes(subscription.render(public, secrets)[subscription.DIRECTORY + "/runtime.json"])
+                headers = server.load_bundle(path)["headers"]
+                self.assertEqual(base64.b64decode(headers["Profile-Title"][7:]).decode(), name or "我的订阅")
+                self.assertTrue(all(value.isascii() for value in headers.values()))
+            for name in ("x\nBad: injected", "\x7f", "x\u2028y", "\ud800", "我的''订阅", False):
+                public["subscription"]["name"] = name
+                with self.assertRaises(ValueError):
+                    subscription.render(public, secrets)
+
+            # Old bundles remain readable; malicious or oversized new headers do not.
+            bundle = json.loads(path.read_bytes())
+            bundle["headers"].pop("Profile-Title")
+            bundle["headers"].pop("Content-Disposition")
+            import hashlib
+            def save():
+                bundle.pop("generation", None)
+                bundle["generation"] = hashlib.sha256(json.dumps(bundle, sort_keys=True).encode()).hexdigest()
+                path.write_text(json.dumps(bundle), encoding="utf-8")
+            save()
+            server.load_bundle(path)
+            for value in ("bad\r\nInjected: true", "中文", "x" * 1025):
+                bundle["headers"]["Content-Disposition"] = value
+                save()
+                with self.assertRaises(ValueError):
+                    server.load_bundle(path)
 
     def test_aliases_rotate_together_and_metadata_is_manual(self):
         public, secrets = fixture()
@@ -132,6 +201,12 @@ class SubscriptionTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     service.reload()
                 self.assertEqual(request(route)[0], 200)
+                public["subscription"]["name"] = "最伟大的派送员"
+                path.write_bytes(subscription.render(public, secrets)[subscription.DIRECTORY + "/runtime.json"])
+                service.reload()
+                status, headers, _ = request(route)
+                self.assertEqual(status, 200)
+                self.assertEqual(base64.b64decode(headers["Profile-Title"][7:]).decode(), "最伟大的派送员")
                 secrets["subscription_token"] = "C" * 43
                 path.write_bytes(subscription.render(public, secrets)[subscription.DIRECTORY + "/runtime.json"])
                 service.reload()

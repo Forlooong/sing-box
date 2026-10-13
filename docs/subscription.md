@@ -2,11 +2,25 @@
 
 每台服务器独立维护一个 profile，通过 SSH 下的 `sb` 命令管理。订阅服务没有公开管理 API，也不接受网络订阅地址抓取。导入使用 URI 文件或 stdin，避免分享链接进入 shell 历史记录。
 
+先设置客户端导入时显示的订阅名称，再获取订阅地址：
+
+```sh
+sb sub name "最伟大的派送员"
+sb sub name
+sb sub url
+sb help sub
+```
+
+`sb sub name "自定义名称"` 修改订阅名称；不带名称时显示当前值。名称支持中文，含空格时应保留引号。改名不改变订阅链接、随机密钥或节点名称。已经导入的客户端可能保留本地名称，可在客户端改名或重新导入一次。`sub` 是 `subscription` 的简写，长命令继续兼容。
+
+名称限 1–80 个字符，不含首尾空白、控制字符、斜杠或连续两个英文单引号；旧配置未设置时显示“我的订阅”。HTTP 响应同时发送 RFC 5987 编码的 `Content-Disposition: filename*` 与 UTF-8/Base64 编码的 `Profile-Title`，YAML 和 raw、GET 和 HEAD 均生效。名称独立于访问令牌。
+
+导入或修改订阅内的节点：
+
 ```sh
 sb node import --file nodes.txt --name '备用节点'
 sb node list
 sb node rename <节点ID> '新的名称'
-sb subscription url
 ```
 
 `--name` 仅适用于单条 URI；批量文件使用各行 URI 的名称。同一个连接不会因换名而被重复添加；冲突名称必须修改。主动运行 `sb node show <节点ID> --uri` 或 `sb subscription url` 才输出含认证信息的地址。

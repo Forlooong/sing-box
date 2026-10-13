@@ -29,7 +29,7 @@ apt-get update
 apt-get install -y python3 python3-yaml
 sh install.sh --site site.example.com --subscription-domain sub.example.com --email admin@example.com
 sb check
-sb subscription url
+sb sub url
 ```
 
 默认从 `Forlooong/clash-rules-mrs` 拉取四来源已构建规则快照。首次下载、哈希、MRS解码或完整客户端配置验证失败则不发布订阅。明确不需要这些规则时，可在安装命令增加 `--without-rules`，以后用 `sb rules update` 启用。
@@ -40,12 +40,17 @@ sb subscription url
 python3 -m sbmanager.cli migrate inspect
 sh install.sh migrate --site new-site.example.com --subscription-domain sub.example.com --email admin@example.com --public-server ORIGINAL_IP_OR_DOMAIN
 sb help
+sb help sub
+sb sub name "最伟大的派送员"
+sb sub url
 sb status
 sb node list
-sb subscription path private/path
-sb subscription rotate
 sb rules update
 ```
+
+`sb`、`sb help`、`sb --help` 显示相同的中文操作指南；`sb help node` 等命令按主题列出用法，具体参数用 `sb node add -h` 查看。`sub` 是 `subscription` 的简写，原有命令继续可用。
+
+`sb sub name "自定义名称"` 设置客户端导入时的订阅名称；不带名称时查看当前值。改名不更换链接或节点名称。已导入的客户端可能保留本地名称，可在客户端改名或重新导入。修改路径前缀用 `sb sub path private/path`；需要立即撤销全部旧链接时才使用 `sb sub rotate`，之后通过 `sb sub url` 获取新地址。
 
 自动迁移仅接受可识别的233boy sing-box/Caddy和本项目原独立订阅服务。旧端口、凭证、REALITY SNI、核心版本和证书pin保留；未知路由、自建Nginx/Xray或来源IP依赖整体拒绝。兼容服务保留到显式 `sb node retire`。迁移需要短暂重连。
 
