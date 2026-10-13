@@ -175,7 +175,17 @@ sb site set --file /root/index.html
 sb domain site site2.example.com
 ```
 
-脚本检查解析并申请证书，保留旧域名入口。现有节点继续使用原来的 SNI，新节点使用新网站域名。需要切换现有节点时，使用 `sb node set`；仍被节点依赖的旧域名不能直接退役。
+脚本检查解析并申请证书，保留旧域名入口。现有节点继续使用原来的 SNI；仍被节点依赖的旧域名不能直接退役。
+
+**已有默认 REALITY 节点时，新增 REALITY 必须显式指定独立端口，更换网站域名后也一样。** 当前版本不会为新节点自动分配独立的内部监听；省略 `--port` 会复用默认 REALITY 内部端口（默认为 `2443`），与旧节点的密钥或 SNI 冲突，报 `incompatible local nodes share a listener`。
+
+例如，确认 TCP 24444 未被占用，在云安全组和服务器防火墙放行后执行：
+
+```sh
+sb node add --name "新域名 REALITY" --protocol vless --security reality --port 24444
+```
+
+该节点使用新网站域名作为服务器地址和 SNI，客户端连接端口为 **TCP 24444**，不经过 TCP 443 的共享入口。添加完成后刷新客户端订阅。此方法绕开现有的[监听分配限制](docs/grilling-review-2026-10-13.md#4-p2默认新增第二个-reality-节点失败)，不会修改旧节点的端口或凭证。
 
 ## 客户端配置和流量信息
 
