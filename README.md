@@ -2,6 +2,8 @@
 
 本分支将原 233boy 脚本改为 Nginx、sing-box 和私有订阅的统一管理器。已完成一台 Debian 12 amd64 [测试服务器验收](docs/server-validation-2026-10-13.md)；本地 Linux 验证结果和其他环境的未验证边界见 [验证记录](docs/validation.md)。原 `src/` 保留用于归属和迁移参考，新入口不会执行旧修改逻辑。
 
+当前为待审候选。后续[质询审查](docs/grilling-review-2026-10-13.md)确认了更新中断恢复入口、订阅版本验收、历史域名证书同步和默认新增 REALITY 的四项待修问题；已有测试通过不代表这些故障已解决。
+
 默认创建 VLESS REALITY TCP/Vision 和使用可信证书的 HY2。订阅输出 Mihomo YAML 与 Base64 原始链接，只有一个 `节点选择` 分组，支持本地节点及手工 URI 导入。
 
 ```mermaid

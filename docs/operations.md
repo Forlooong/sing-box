@@ -78,6 +78,8 @@ fingerprint、obfs、alpn、method、path、host、listen_port、listen、conges
 
 ## 事务、更新与故障
 
+当前存在[已确认的恢复与发布限制](grilling-review-2026-10-13.md)：管理代码更新中途被强制终止时，已安装的恢复命令可能无法启动，需要保留独立完整源码作为恢复入口；订阅重载失败时，HTTP 200 也可能来自旧配置。以下流程描述正常路径，不能视为这些故障已经修复。
+
 ```sh
 sb transaction list
 sb transaction recover
@@ -95,7 +97,7 @@ sb update v2.0.0-rc1
 重载订阅服务，不重启代理核心。网络栈、证书、节点或核心版本变更可能引起短暂重连。
 本机数据通路检查不能代替从实际客户端网络验证公网 UDP 可达性。
 
-断电或进程中止后再次执行命令会恢复未完成文件事务；`transaction recover` 也恢复准备阶段
+在管理程序及其依赖仍能完整启动的前提下，再次执行命令会恢复未完成文件事务；`transaction recover` 也恢复准备阶段
 和 ACME 临时监听。首次安装失败可能保留已安装的系统依赖包与无登录权限的服务用户；脚本
 不会使用 `autoremove` 删除可能被其他程序使用的依赖。持久日志和备份留在
 `/var/backups/sb/transactions`，目录权限 0700。不要手工删除最近事务的备份。
