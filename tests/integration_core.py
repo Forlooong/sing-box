@@ -300,12 +300,29 @@ def traffic(directory, cores):
         for node in probe_state["nodes"]:
             if node["protocol"] != "vmess":
                 node["port"] = edge
-        with patch.dict(os.environ, {"SSL_CERT_FILE": str(cert)}):
+        # Keep only synthetic fixture logs alive until the outer
+        # failure handler can read them, even after local_nodes removes its tempdir.
+        original_popen = subprocess.Popen
+
+        def fixture_probe_popen(argv, **kwargs):
+            if str(argv[0]) != str(cores["mihomo"]):
+                return original_popen(argv, **kwargs)
+            client_config = Path(argv[argv.index("-f") + 1])
+            document = yaml.safe_load(client_config.read_text())
+            document["log-level"] = "warning"
+            client_config.write_text(yaml.safe_dump(document, allow_unicode=True))
+            process = original_popen(argv, **kwargs)
+            logs.append(Path(kwargs["stdout"].name).open())
+            return process
+
+        with patch.dict(os.environ, {"SSL_CERT_FILE": str(cert)}), \
+                patch.object(probe.subprocess, "Popen", fixture_probe_popen):
             probe.local_nodes(probe_state, secret, cores["mihomo"])
         verified.append("production transaction local_nodes probe with temporary trust")
         return verified
     except Exception:
         for log in logs:
+            print("Fixture log: " + str(log.name), file=sys.stderr)
             log.flush()
             log.seek(0)
             print(log.read()[-3000:], file=sys.stderr)
