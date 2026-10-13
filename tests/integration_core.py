@@ -300,7 +300,7 @@ def traffic(directory, cores):
         for node in probe_state["nodes"]:
             if node["protocol"] != "vmess":
                 node["port"] = edge
-        # [DEBUG-hy2-ci] Keep only synthetic fixture logs alive until the outer
+        # Keep only synthetic fixture logs alive until the outer
         # failure handler can read them, even after local_nodes removes its tempdir.
         original_popen = subprocess.Popen
 
@@ -322,7 +322,7 @@ def traffic(directory, cores):
         return verified
     except Exception:
         for log in logs:
-            print("[DEBUG-hy2-ci] fixture log: " + str(log.name), file=sys.stderr)
+            print("Fixture log: " + str(log.name), file=sys.stderr)
             log.flush()
             log.seek(0)
             print(log.read()[-3000:], file=sys.stderr)

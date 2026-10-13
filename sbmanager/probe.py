@@ -63,11 +63,25 @@ def local_nodes(state, credentials, mihomo=Path("/opt/sb/bin/mihomo")):
                                 if time.monotonic() >= deadline:
                                     raise RuntimeError("Local proxy probe did not become ready") from None
                                 time.sleep(.1)
-                        result = subprocess.run(["curl", "--silent", "--fail", "--max-time", "15", "--noproxy", "",
-                              "--socks5-hostname", f"127.0.0.1:{port}", f"http://127.0.0.1:{origin.server_port}/"],
-                              capture_output=True, timeout=20)
-                        if process.poll() is not None or result.returncode or result.stdout != marker:
-                            raise RuntimeError("Local " + node["protocol"] + " data-path probe failed")
+                        # Mihomo opens its listeners before the tunnel enters
+                        # Running. A TCP connection can succeed during that gap
+                        # while a SOCKS request is closed without a response.
+                        # Retry only empty connection failures within the same
+                        # startup deadline; success still requires the marker.
+                        while True:
+                            result = subprocess.run(["curl", "--silent", "--fail", "--max-time", "15", "--noproxy", "",
+                                  "--socks5-hostname", f"127.0.0.1:{port}", f"http://127.0.0.1:{origin.server_port}/"],
+                                  capture_output=True, timeout=20)
+                            core_exit = process.poll()
+                            if core_exit is None and result.returncode == 0 and result.stdout == marker:
+                                break
+                            transient = core_exit is None and result.returncode in {7, 52, 56, 97} and not result.stdout
+                            if not transient or time.monotonic() >= deadline:
+                                core_status = "running" if core_exit is None else "exit " + str(core_exit)
+                                response_status = "empty" if not result.stdout else "unexpected"
+                                raise RuntimeError("Local " + node["protocol"] + " data-path probe failed "
+                                                   f"(curl exit {result.returncode}; core {core_status}; response {response_status})")
+                            time.sleep(.1)
                     finally:
                         process.terminate()
                         try:
