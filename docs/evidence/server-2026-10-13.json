@@ -1,0 +1,110 @@
+{
+  "tested_at": "2026-10-13T06:53:14.071926+00:00",
+  "server": "70.39.195.239",
+  "os": "Debian 12",
+  "architecture": "amd64",
+  "code_commit": "3269188",
+  "unit_tests_passed": 120,
+  "real_core_configurations_passed": 20,
+  "rules_build": "rules-38341249423-1",
+  "runtime_matches_source": true,
+  "permissions": {
+    "sb-core_nonroot": true,
+    "sb-core_secrets_denied": true,
+    "sb-subscription_nonroot": true,
+    "sb-subscription_secrets_denied": true,
+    "core_config_readable": true,
+    "sub_bundle_readable": true,
+    "admin_secret_mode": "0o600",
+    "nginx_worker_user": [
+      "root",
+      "nginx",
+      "nginx",
+      "nginx",
+      "nginx"
+    ]
+  },
+  "operational_acceptance": {
+    "schema_version": 1,
+    "started_at": "2026-10-13T06:47:09.753657+00:00",
+    "status": "passed",
+    "checks": [
+      {
+        "name": "initial_check",
+        "status": "passed"
+      },
+      {
+        "name": "path_alias_and_reload",
+        "status": "passed",
+        "transaction": "20261013T064716Z-1791874036980936533-08ed23"
+      },
+      {
+        "name": "path_rollback",
+        "status": "passed",
+        "transaction": "20261013T064716Z-1791874036980936533-08ed23"
+      },
+      {
+        "name": "unchanged_certificate_sync",
+        "status": "passed",
+        "attempts": 2
+      },
+      {
+        "name": "token_rotation",
+        "status": "passed",
+        "transaction": "20261013T064736Z-1791874056445907694-8568c6"
+      },
+      {
+        "name": "rotation_rollback_preserves_revocation",
+        "status": "passed",
+        "transaction": "20261013T064736Z-1791874056445907694-8568c6"
+      },
+      {
+        "name": "final_check",
+        "status": "passed"
+      }
+    ],
+    "created_transactions": [
+      "20261013T064716Z-1791874036980936533-08ed23",
+      "20261013T064736Z-1791874056445907694-8568c6"
+    ],
+    "original_subscription_token_permanently_revoked": true,
+    "finished_at": "2026-10-13T06:47:51.018442+00:00"
+  },
+  "scheduled_acceptance": {
+    "sb-rules.service_busy_skip_success": true,
+    "sb-cert-sync.service_busy_skip_success": true,
+    "interactive_busy_still_fails": true,
+    "sb-rules.service_uncontended_success": true,
+    "sb-rules.service_systemd_result": "success",
+    "sb-cert-sync.service_uncontended_success": true,
+    "sb-cert-sync.service_systemd_result": "success",
+    "deployed_runtime_matches_reviewed_source": true
+  },
+  "renewal_dry_run": {
+    "sub": 0,
+    "site": 0
+  },
+  "certificates": [
+    {
+      "domain": "subnode1.040323.xyz",
+      "valid": true,
+      "dates": "notBefore=Oct 13 05:39:45 2026 GMT\nnotAfter=Jan 11 05:39:44 2027 GMT"
+    },
+    {
+      "domain": "yunyoo.ser321761201019.040323.xyz",
+      "valid": true,
+      "dates": "notBefore=Oct 13 05:39:53 2026 GMT\nnotAfter=Jan 11 05:39:52 2027 GMT"
+    }
+  ],
+  "services": {
+    "nginx": "active",
+    "sb-sing-box": "active",
+    "sb-subscription": "active",
+    "sb-rules.timer": "active",
+    "sb-cert-sync.timer": "active",
+    "certbot.timer": "active"
+  },
+  "subscription_prefix": "private",
+  "subscription_alias_count": 0,
+  "unresolved_transactions": []
+}

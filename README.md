@@ -1,6 +1,6 @@
 # Forlooong sing-box 管理栈
 
-本分支将原 233boy 脚本改为 Nginx、sing-box 和私有订阅的统一管理器。当前为待部署验收的实现版本；本地 Linux 验证结果和未验证边界见 [验证记录](docs/validation.md)。原 `src/` 保留用于归属和迁移参考，新入口不会执行旧修改逻辑。
+本分支将原 233boy 脚本改为 Nginx、sing-box 和私有订阅的统一管理器。已完成一台 Debian 12 amd64 [测试服务器验收](docs/server-validation-2026-10-13.md)；本地 Linux 验证结果和其他环境的未验证边界见 [验证记录](docs/validation.md)。原 `src/` 保留用于归属和迁移参考，新入口不会执行旧修改逻辑。
 
 默认创建 VLESS REALITY TCP/Vision 和使用可信证书的 HY2。订阅输出 Mihomo YAML 与 Base64 原始链接，只有一个 `节点选择` 分组，支持本地节点及手工 URI 导入。
 
@@ -21,6 +21,8 @@ REALITY 的目标是本机 HTTPS 网站监听，不指回公网443。TCP与UDP�
 支持 Debian12/13、Ubuntu24.04，systemd，amd64/arm64。需要两个独立域名，全部 A/AAAA 记录指向服务器，关闭 CDN 代理。准备公网TCP80/443和所需UDP端口；脚本不修改防火墙或SSH。
 
 先检查完整源码或明确版本发行包；发行包用随包的 `SHA256SUMS` 校验。不要将此安装器作为不完整的 `curl | bash` 脚本执行。
+
+`--email` 是 Let's Encrypt 证书账户的普通联系邮箱，不是邮箱密码或 Cloudflare API 令牌。当前方案通过公网 TCP80 验证域名控制权。
 
 ```sh
 apt-get update
@@ -67,6 +69,6 @@ python3 tests/integration_core.py --traffic --remote-rules
 
 集成测试仅使用隔离目录、高位loopback端口和临时凭证；不安装系统包、不修改systemd、防火墙或系统CA。CI执行单元与真实核心流量测试；手工打包工作流只产出归档与SHA256，不自动发布或部署。
 
-真实公网ACME申请/续期、完整systemd安装、ARM64运行及客户端所在网络的UDP可达性，仍须在指定测试服务器验收。DNS解析和本机TLS检查不能证明中国境内直连质量，也不能保证匿名性。
+Debian 12 amd64 的真实公网ACME签发、续期演练、systemd安装及外部REALITY/HY2连接已在上述测试服务器通过。其他系统、ARM64、真实旧部署迁移及不同客户端网络仍须分别验收。DNS解析和本机TLS检查不能证明中国境内直连质量，也不能保证匿名性。
 
 基于 [233boy/sing-box](https://github.com/233boy/sing-box) 与 [Forlooong/sing-box](https://github.com/Forlooong/sing-box)，按仓库 [GPL许可证](LICENSE) 保留归属。
