@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "repository": "Forlooong/sing-box",
+  "nginx": "1.30.5",
+  "mihomo": "1.19.32",
+  "sing-box": "1.14.3",
+  "client": "Clash Verge Rev 2.5.8",
+  "assets": {
+    "sing-box-amd64": {"url": "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-linux-amd64.tar.gz", "sha256": "e2bdf179c15a3652955dc44867e33ca0965c9c9b91b34267dcc5a5d639a5feee", "format": "tar.gz", "binary": "sing-box"},
+    "sing-box-arm64": {"url": "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-linux-arm64.tar.gz", "sha256": "29dae24d76bea3bc62d07dd3e60cfc12003de7debbd6b768df9be9c68360174e", "format": "tar.gz", "binary": "sing-box"},
+    "mihomo-amd64": {"url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.32/mihomo-linux-amd64-compatible-v1.19.32.gz", "sha256": "ba3ce607747a07f948fc35780e108a4a7c7f552a38b9bd4d115f313ebcb89c20", "format": "gz", "binary": "mihomo"},
+    "mihomo-arm64": {"url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.32/mihomo-linux-arm64-v1.19.32.gz", "sha256": "9dd862e28b46ff7d775f169cceebc28deccaa0a9e804237d421cd2571e0caba0", "format": "gz", "binary": "mihomo"}
+  }
+}

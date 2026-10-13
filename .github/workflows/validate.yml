@@ -1,0 +1,27 @@
+name: Validate managed stack
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  unit:
+    strategy:
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install PyYAML cryptography
+      - run: python -B -m unittest discover -s tests -v
+      - run: sh -n install.sh && sh -n sing-box.sh && git diff --check
+  linux-core:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y python3-yaml python3-cryptography curl gnupg openssl
+      - run: python3 tests/integration_core.py --traffic

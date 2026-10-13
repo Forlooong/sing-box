@@ -1,0 +1,67 @@
+mixed-port: 7897
+allow-lan: false
+bind-address: 127.0.0.1
+mode: rule
+log-level: info
+ipv6: false
+unified-delay: true
+tcp-concurrent: true
+find-process-mode: strict
+profile:
+  store-selected: true
+  store-fake-ip: true
+tun:
+  enable: false
+  stack: mixed
+  auto-route: true
+  auto-detect-interface: true
+  strict-route: true
+  dns-hijack: [any:53, 'tcp://any:53']
+sniffer:
+  enable: true
+  parse-pure-ip: true
+  override-destination: false
+  skip-dst-address:
+    - 127.0.0.0/8
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 169.254.0.0/16
+    - 100.64.0.0/10
+    - ::1/128
+    - fc00::/7
+    - fe80::/10
+  sniff:
+    HTTP:
+      ports: [80, 8080-8880]
+    TLS:
+      ports: [443, 8443]
+    QUIC:
+      ports: [443, 8443]
+dns:
+  enable: true
+  listen: 127.0.0.1:5335
+  ipv6: false
+  use-system-hosts: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - localhost
+    - +.lan
+    - +.local
+    - +.home.arpa
+    - +.pool.ntp.org
+    - time.windows.com
+    - time.apple.com
+    - +.msftconnecttest.com
+    - +.msftncsi.com
+  default-nameserver: [https://223.5.5.5/dns-query, https://120.53.53.53/dns-query]
+  proxy-server-nameserver: [https://223.5.5.5/dns-query#DIRECT, https://120.53.53.53/dns-query#DIRECT]
+  direct-nameserver: [https://223.5.5.5/dns-query#DIRECT, https://120.53.53.53/dns-query#DIRECT]
+  direct-nameserver-follow-policy: true
+  nameserver: [https://1.1.1.1/dns-query#节点选择, https://8.8.8.8/dns-query#节点选择]
+  nameserver-policy:
+    localhost: system
+    +.lan: system
+    +.local: system
+    +.home.arpa: system

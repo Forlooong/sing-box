@@ -1,115 +1,81 @@
-# 介绍
+# Forlooong sing-box 管理栈
 
-最好用的 sing-box 一键安装脚本 & 管理脚本
+本分支将原 233boy 脚本改为 Nginx、sing-box 和私有订阅的统一管理器。已完成一台 Debian 12 amd64 [测试服务器验收](docs/server-validation-2026-10-13.md)；本地 Linux 验证结果和其他环境的未验证边界见 [验证记录](docs/validation.md)。原 `src/` 保留用于归属和迁移参考，新入口不会执行旧修改逻辑。
 
-# 特点
+当前为待审候选。后续[质询审查](docs/grilling-review-2026-10-13.md)确认了更新中断恢复入口、订阅版本验收、历史域名证书同步和默认新增 REALITY 的四项待修问题；已有测试通过不代表这些故障已解决。
 
-- 快速安装
-- 无敌好用
-- 零学习成本
-- 自动化 TLS
-- 简化所有流程
-- 兼容 sing-box 命令
-- 强大的快捷参数
-- 支持所有常用协议
-- 一键添加 VLESS-REALITY (默认)
-- 一键添加 TUIC
-- 一键添加 Trojan
-- 一键添加 Hysteria2
-- 一键添加 AnyTLS
-- 一键添加 Shadowsocks 2022
-- 一键添加 VMess-(TCP/HTTP/QUIC)
-- 一键添加 VMess-(WS/H2/HTTPUpgrade)-TLS
-- 一键添加 VLESS-(WS/H2/HTTPUpgrade)-TLS
-- 一键添加 Trojan-(WS/H2/HTTPUpgrade)-TLS
-- 一键启用 BBR
-- 一键更改伪装网站
-- 一键更改 (端口/UUID/密码/域名/路径/加密方式/SNI/等...)
-- 还有更多...
+默认创建 VLESS REALITY TCP/Vision 和使用可信证书的 HY2。订阅输出 Mihomo YAML 与 Base64 原始链接，只有一个 `节点选择` 分组，支持本地节点及手工 URI 导入。
 
-# 设计理念
-
-设计理念为：**高效率，超快速，极易用**
-
-脚本基于作者的自身使用需求，以 **多配置同时运行** 为核心设计
-
-并且专门优化了，添加、更改、查看、删除、这四项常用功能
-
-你只需要一条命令即可完成 添加、更改、查看、删除、等操作
-
-例如，添加一个配置仅需不到 1 秒！瞬间完成添加！其他操作亦是如此！
-
-脚本的参数非常高效率并且超级易用，请掌握参数的使用
-
-# 文档
-
-安装及使用：https://233boy.com/sing-box/sing-box-script/
-
-# 帮助
-
-使用：`sing-box help`
-
+```mermaid
+flowchart LR
+  TCP[TCP 443] --> SNI[Nginx SNI 分流]
+  SNI -->|网站域名| R[本机 REALITY]
+  R -->|普通浏览器回落| W[本机 HTTPS 网站]
+  SNI -->|订阅域名| H[本机订阅 HTTPS]
+  H --> P[只读订阅服务]
+  UDP[UDP 443] --> HY[HY2]
 ```
-sing-box script v1.0 by 233boy
-Usage: sing-box [options]... [args]...
 
-基本:
-   v, version                                      显示当前版本
-   ip                                              返回当前主机的 IP
-   pbk                                             同等于 sing-box generate reality-keypair
-   get-port                                        返回一个可用的端口
-   ss2022                                          返回一个可用于 Shadowsocks 2022 的密码
+REALITY 的目标是本机 HTTPS 网站监听，不指回公网443。TCP与UDP可以使用相同端口号；旧部署保留UDP443时，新HY2会改用空闲端口。网站默认提供时钟、时区和秒表，可用 `sb site set` 替换。
 
-一般:
-   a, add [protocol] [args... | auto]              添加配置
-   c, change [name] [option] [args... | auto]      更改配置
-   d, del [name]                                   删除配置**
-   i, info [name]                                  查看配置
-   qr [name]                                       二维码信息
-   url [name]                                      URL 信息
-   log                                             查看日志
-更改:
-   full [name] [...]                               更改多个参数
-   id [name] [uuid | auto]                         更改 UUID
-   host [name] [domain]                            更改域名
-   port [name] [port | auto]                       更改端口
-   path [name] [path | auto]                       更改路径
-   passwd [name] [password | auto]                 更改密码
-   key [name] [Private key | auto] [Public key]    更改密钥
-   method [name] [method | auto]                   更改加密方式
-   sni [name] [ ip | domain]                       更改 serverName
-   new [name] [...]                                更改协议
-   web [name] [domain]                             更改伪装网站
+## 安装
 
-进阶:
-   dns [...]                                       设置 DNS
-   dd, ddel [name...]                              删除多个配置**
-   fix [name]                                      修复一个配置
-   fix-all                                         修复全部配置
-   fix-caddyfile                                   修复 Caddyfile
-   fix-config.json                                 修复 config.json
-   import                                          导入 sing-box/v2ray 脚本配置
+支持 Debian12/13、Ubuntu24.04，systemd，amd64/arm64。需要两个独立域名，全部 A/AAAA 记录指向服务器，关闭 CDN 代理。准备公网TCP80/443和所需UDP端口；脚本不修改防火墙或SSH。
 
-管理:
-   un, uninstall                                   卸载
-   u, update [core | sh | caddy] [ver]             更新
-   U, update.sh                                    更新脚本
-   s, status                                       运行状态
-   start, stop, restart [caddy]                    启动, 停止, 重启
-   t, test                                         测试运行
-   reinstall                                       重装脚本
+先检查完整源码或明确版本发行包；发行包用随包的 `SHA256SUMS` 校验。不要将此安装器作为不完整的 `curl | bash` 脚本执行。
 
-测试:
-   debug [name]                                    显示一些 debug 信息, 仅供参考
-   gen [...]                                       同等于 add, 但只显示 JSON 内容, 不创建文件, 测试使用
-   no-auto-tls [...]                               同等于 add, 但禁止自动配置 TLS, 可用于 *TLS 相关协议
-其他:
-   bbr                                             启用 BBR, 如果支持
-   bin [...]                                       运行 sing-box 命令, 例如: sing-box bin help
-   [...] [...]                                     兼容绝大多数的 sing-box 命令, 例如: sing-box generate uuid
-   h, help                                         显示此帮助界面
+`--email` 是 Let's Encrypt 证书账户的普通联系邮箱，不是邮箱密码或 Cloudflare API 令牌。当前方案通过公网 TCP80 验证域名控制权。
 
-谨慎使用 del, ddel, 此选项会直接删除配置; 无需确认
-反馈问题) https://github.com/233boy/sing-box/issues
-文档(doc) https://233boy.com/sing-box/sing-box-script/
+```sh
+apt-get update
+apt-get install -y python3 python3-yaml
+sh install.sh --site site.example.com --subscription-domain sub.example.com --email admin@example.com
+sb check
+sb sub url
 ```
+
+默认从 `Forlooong/clash-rules-mrs` 拉取四来源已构建规则快照。首次下载、哈希、MRS解码或完整客户端配置验证失败则不发布订阅。明确不需要这些规则时，可在安装命令增加 `--without-rules`，以后用 `sb rules update` 启用。
+
+## 迁移与日常管理
+
+```sh
+python3 -m sbmanager.cli migrate inspect
+sh install.sh migrate --site new-site.example.com --subscription-domain sub.example.com --email admin@example.com --public-server ORIGINAL_IP_OR_DOMAIN
+sb help
+sb help sub
+sb sub name "最伟大的派送员"
+sb sub url
+sb status
+sb node list
+sb rules update
+```
+
+`sb`、`sb help`、`sb --help` 显示相同的中文操作指南；`sb help node` 等命令按主题列出用法，具体参数用 `sb node add -h` 查看。`sub` 是 `subscription` 的简写，原有命令继续可用。
+
+`sb sub name "自定义名称"` 设置客户端导入时的订阅名称；不带名称时查看当前值。改名不更换链接或节点名称。已导入的客户端可能保留本地名称，可在客户端改名或重新导入。修改路径前缀用 `sb sub path private/path`；需要立即撤销全部旧链接时才使用 `sb sub rotate`，之后通过 `sb sub url` 获取新地址。
+
+自动迁移仅接受可识别的233boy sing-box/Caddy和本项目原独立订阅服务。旧端口、凭证、REALITY SNI、核心版本和证书pin保留；未知路由、自建Nginx/Xray或来源IP依赖整体拒绝。兼容服务保留到显式 `sb node retire`。迁移需要短暂重连。
+
+- [完整命令、证书与回滚](docs/operations.md)
+- [迁移范围与阻断条件](docs/migration.md)
+- [协议能力与限制](docs/protocols.md)
+- [订阅、模板、手工流量信息与规则](docs/subscription.md)
+- [验证记录](docs/validation.md)
+- [已批准的实施顺序](docs/implementation-plan.md)
+
+修改域名和路径会保留历史别名；轮换令牌则立即作废所有旧URL。文件、配置、服务切换采用持久事务，失败回滚；撤销令牌不会因回滚复活。各项变更须通过Nginx、sing-box、Mihomo校验和就绪检查。首次安装失败可能留下基础系统依赖及无登录权限的服务用户。
+
+## 固定依赖与验证
+
+[versions.json](versions.json) 固定候选版本与下载SHA256：sing-box1.14.3、Mihomo1.19.32、Nginx1.30.5；客户端适配目标为Clash Verge Rev2.5.8。已有旧核心不随迁移升级。Nginx使用官方签名软件源，已有Nginx不被隐式升级。
+
+```sh
+python3 -B -m unittest discover -s tests -v
+python3 tests/integration_core.py --traffic --remote-rules
+```
+
+集成测试仅使用隔离目录、高位loopback端口和临时凭证；不安装系统包、不修改systemd、防火墙或系统CA。CI执行单元与真实核心流量测试；手工打包工作流只产出归档与SHA256，不自动发布或部署。
+
+Debian 12 amd64 的真实公网ACME签发、续期演练、systemd安装及外部REALITY/HY2连接已在上述测试服务器通过。其他系统、ARM64、真实旧部署迁移及不同客户端网络仍须分别验收。DNS解析和本机TLS检查不能证明中国境内直连质量，也不能保证匿名性。
+
+基于 [233boy/sing-box](https://github.com/233boy/sing-box) 与 [Forlooong/sing-box](https://github.com/Forlooong/sing-box)，按仓库 [GPL许可证](LICENSE) 保留归属。
