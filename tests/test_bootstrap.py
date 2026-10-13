@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -193,6 +194,56 @@ class BootstrapTests(unittest.TestCase):
         self.assertFalse(b._path("/opt/sb/bin/sing-box").exists())
         self.assertFalse(b._path(b.PREPARATION).exists())
         restore.assert_called_once_with(flags)
+
+    @unittest.skipUnless(os.name == "posix", "Unix service account permissions require POSIX")
+    def test_preparation_opens_acme_parent_then_restores_existing_directory_permissions(self):
+        import pwd
+        import grp
+        import stat
+        names = ("/var/lib/sb", "/var/lib/sb/core", b.certificates.WEBROOT, "/var/lib/sb/rules")
+        original_modes = (0o700, 0o710, 0o750, 0o750)
+        for existing in (False, True):
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory(dir=self.root) as directory, \
+                 patch.object(b, "ROOT", Path(directory)):
+                if existing:
+                    for name, mode in zip(names, original_modes):
+                        path = b._path(name)
+                        path.mkdir(parents=True, exist_ok=True)
+                        path.chmod(mode)
+                source = Path(directory) / "source"
+                source.mkdir()
+                (source / "versions.json").write_text(json.dumps({"assets": {"sing-box-amd64": {}, "mihomo-amd64": {}}}))
+                user = SimpleNamespace(pw_uid=1001, pw_gid=1001, pw_shell="/usr/sbin/nologin")
+                group = SimpleNamespace(gr_gid=1001, gr_mem=[])
+
+                def fail_after_accounts(_):
+                    self.assertEqual(stat.S_IMODE(b._path("/var/lib/sb").stat().st_mode), 0o711)
+                    self.assertEqual(stat.S_IMODE(b._path(b.certificates.WEBROOT).stat().st_mode), 0o755)
+                    journal = json.loads(b._path(b.PREPARATION).read_bytes())
+                    self.assertEqual(journal["directories"]["/var/lib/sb"]["existed"], existing)
+                    if existing:
+                        self.assertEqual(journal["directories"]["/var/lib/sb"]["mode"], 0o700)
+                    raise RuntimeError("download failed")
+
+                previous_umask = os.umask(0o077)
+                try:
+                    with patch.object(b.system, "os_check", return_value={"ID": "debian", "VERSION_ID": "12"}), \
+                         patch.object(b.system, "network_preflight"), patch.object(b.system, "service_state", return_value={}), \
+                         patch.object(b.system, "restore_services"), patch.object(b, "runtime_files", return_value={}), \
+                         patch.object(b, "_install_packages"), patch.object(b.platform, "machine", return_value="x86_64"), \
+                         patch.object(pwd, "getpwnam", return_value=user), patch.object(grp, "getgrnam", return_value=group), \
+                         patch.object(grp, "getgrall", return_value=[]), patch.object(b.os, "chown") as chown, \
+                         patch.object(b.updates, "binary", side_effect=fail_after_accounts):
+                        with self.assertRaisesRegex(RuntimeError, "download failed"):
+                            b.prepare_host(source, self.state)
+                        if existing:
+                            for name, mode in zip(names, original_modes):
+                                path = b._path(name)
+                                self.assertEqual(stat.S_IMODE(path.stat().st_mode), mode)
+                                chown.assert_any_call(path, path.stat().st_uid, path.stat().st_gid)
+                        self.assertFalse(b._path(b.PREPARATION).exists())
+                finally:
+                    os.umask(previous_umask)
 
     def test_gpg_bundle_must_contain_every_pinned_official_key(self):
         with patch.object(b, "_key_bytes", return_value=b"fake bundle"), \

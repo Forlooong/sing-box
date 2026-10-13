@@ -30,6 +30,13 @@ class CommandTests(unittest.TestCase):
     def test_retained_and_migrated_public_certificates_remain_managed(self):
         self.assertEqual(cert.managed_domains(state()), ["legacy.example.com", "old.example.com", "oldsub.example.com", "site.example.com", "sub.example.com"])
 
+    def test_renew_requires_a_valid_explicit_lineage(self):
+        self.assertEqual(cert.certbot_renew_command("SITE.example.com"),
+                         ["certbot", "renew", "--non-interactive", "--quiet", "--cert-name", "site.example.com"])
+        for value in (None, "", "--all", "../site.example.com", "site.example.com\n", "127.0.0.1"):
+            with self.subTest(value=value), self.assertRaises(cert.CertificateError):
+                cert.certbot_renew_command(value)
+
     def test_hook_is_quoted_and_uses_transaction_entrypoint(self):
         self.assertIn(b'cert deploy --lineage "$RENEWED_LINEAGE"', cert.deploy_hook())
         self.assertNotIn(b"systemctl", cert.deploy_hook())

@@ -55,6 +55,21 @@ def _save(record):
     atomic(_path(PREPARATION), encode(record), 0o600)
 
 
+def _preparation_directories():
+    """Capture existing permissions before even the journal creates its parent."""
+    result = {}
+    for name in ("/var/lib/sb", "/var/lib/sb/core", certificates.WEBROOT, "/var/lib/sb/rules"):
+        path = _path(name)
+        entry = {"existed": path.exists()}
+        if path.exists():
+            if not path.is_dir():
+                raise ValueError("Host preparation directory is not a directory")
+            info = path.stat()
+            entry.update(mode=stat.S_IMODE(info.st_mode), uid=info.st_uid, gid=info.st_gid)
+        result[name] = entry
+    return result
+
+
 def _remember_write(record, name, body, mode=0o600):
     path = _path(name)
     if name not in record["files"]:
@@ -120,6 +135,12 @@ def rollback_preparation():
                 os.chown(target, before["uid"], before["gid"])
         else:
             target.unlink(missing_ok=True)
+    for name, before in record.get("directories", {}).items():
+        target = _path(name)
+        if before["existed"] and target.is_dir():
+            os.chmod(target, before["mode"])
+            if os.name == "posix":
+                os.chown(target, before["uid"], before["gid"])
     system.restore_services(record["services"])
     # Accounts are intentionally not deleted: a later administrator may already
     # have assigned files to them. They are locked system users without shells.
@@ -345,7 +366,7 @@ def prepare_host(source, state, public_addresses=(), migration=False):
         raise RuntimeError("Interrupted host preparation exists; recover it before retrying")
     pinned = json.loads((Path(source) / "versions.json").read_bytes())
     files = runtime_files(source)
-    record = {"installation_id": state["installation_id"], "files": {},
+    record = {"installation_id": state["installation_id"], "files": {}, "directories": _preparation_directories(),
               "services": system.service_state(["nginx", "caddy", "certbot.timer"])}
     _save(record)
     try:

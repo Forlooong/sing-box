@@ -527,10 +527,12 @@ def execute(args):
         elif args.action == "renew":
             if args.offline:
                 raise ValueError("Renewal requires a live host")
-            # The CLI holds the global lock: suppress nested deploy hooks and stage
-            # all renewed lineages in this same transaction.
-            system.run(certificates.certbot_renew_command() + ["--no-directory-hooks"], timeout=600)
-            for name in certificates.managed_domains(state):
+            # The CLI holds the global lock: suppress nested deploy hooks only
+            # for our lineages, then stage their copies in one transaction.
+            names = certificates.managed_domains(state)
+            for name in names:
+                system.run(certificates.certbot_renew_command(name) + ["--no-directory-hooks"], timeout=600)
+            for name in names:
                 extra.update(certificates.stage_lineage("/etc/letsencrypt/live/" + name, state, args.root))
         else:
             from pathlib import PurePosixPath

@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import pwd
 import re
 import socket
 import subprocess
@@ -86,7 +87,14 @@ def nginx_binary(directory):
     """Verify nginx.org's signed APT metadata, then extract without installing."""
     versions = json.loads((ROOT / "versions.json").read_bytes())
     arch = {"x86_64": "amd64", "aarch64": "arm64"}[platform.machine()]
-    base = "https://nginx.org/packages/ubuntu/"
+    distribution = platform.freedesktop_os_release()
+    family, codename = distribution.get("ID"), distribution.get("VERSION_CODENAME")
+    if (family, codename) not in {("debian", "bookworm"), ("debian", "trixie"),
+                                  ("ubuntu", "jammy"), ("ubuntu", "noble")}:
+        raise RuntimeError("Isolated Nginx checks require Debian 12/13 or Ubuntu 22.04/24.04")
+    base = "https://nginx.org/packages/" + family + "/"
+    dist = base + "dists/" + codename + "/"
+    print("Nginx signed repository: " + family + "/" + codename + " " + arch, flush=True)
     cache = ROOT / ".test-runtime/core-archives"
 
     def fetch(url, limit=64 * 1024 * 1024):
@@ -114,8 +122,8 @@ def nginx_binary(directory):
     keyring = directory / "nginx.gpg"
     run(["gpg", "--batch", "--homedir", home, "--output", keyring, "--export", *fingerprints])
     release, signature = directory / "Release", directory / "Release.gpg"
-    release.write_bytes(fetch(base + "dists/jammy/Release", 1024 * 1024))
-    signature.write_bytes(fetch(base + "dists/jammy/Release.gpg", 65536))
+    release.write_bytes(fetch(dist + "Release", 1024 * 1024))
+    signature.write_bytes(fetch(dist + "Release.gpg", 65536))
     run(["gpgv", "--keyring", keyring, signature, release])
     relative = "nginx/binary-" + arch + "/Packages"
     lines = release.read_text().split("SHA256:\n", 1)[1].splitlines()
@@ -123,14 +131,14 @@ def nginx_binary(directory):
     if len(matches) != 1:
         raise ValueError("Signed package index absent")
     digest, size, _ = matches[0]
-    packages = fetch(base + "dists/jammy/" + relative, int(size))
+    packages = fetch(dist + relative, int(size))
     updates.verify(packages, digest)
     entries = [dict(line.split(": ", 1) for line in block.splitlines() if ": " in line and not line.startswith(" "))
                for block in packages.decode().split("\n\n")]
     entries = [entry for entry in entries if entry.get("Package") == "nginx" and
                entry.get("Version", "").split("-", 1)[0] == versions["nginx"] and entry.get("Architecture") == arch]
     if len(entries) != 1:
-        raise ValueError("Pinned Nginx version absent from signed Jammy repository")
+        raise ValueError("Pinned Nginx version absent from the signed distribution repository")
     entry = entries[0]
     if not re.fullmatch(r"pool/[A-Za-z0-9_./+~\-]+\.deb", entry["Filename"]) or ".." in entry["Filename"]:
         raise ValueError("Unsafe Nginx package filename")
@@ -194,7 +202,10 @@ def traffic(directory, cores):
     stream = stream.replace("listen 443;", f"listen 127.0.0.1:{edge};").replace("listen [::]:443;", "")
     modules = "".join("load_module " + str(path) + ";\n" for path in unpacked.glob("usr/lib/nginx/modules/*stream*.so"))
     config = directory / "nginx.conf"
-    config.write_text(modules + "daemon off; master_process off;\npid " + str(directory / "nginx.pid") +
+    # With no master/worker split this test runs as its invoking account. Avoid
+    # requiring the package's default nginx user on an otherwise clean host.
+    test_user = "user " + pwd.getpwuid(os.geteuid()).pw_name + ";\n" if os.geteuid() == 0 else ""
+    config.write_text(modules + test_user + "daemon off; master_process off;\npid " + str(directory / "nginx.pid") +
                       ";\nerror_log stderr warn;\nevents {}\n" + stream + "\nhttp { access_log off;\n" +
                       "".join(name + "_temp_path " + str(directory / name) + ";\n" for name in ("client_body", "proxy", "fastcgi", "uwsgi", "scgi")) + http + "\n}\n")
     run([nginx, "-t", "-e", "stderr", "-p", directory, "-c", config])

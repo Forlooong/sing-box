@@ -79,8 +79,9 @@ def certbot_issue_command(domains: list[str], email: str) -> list[str]:
     return command
 
 
-def certbot_renew_command() -> list[str]:
-    return ["certbot", "renew", "--non-interactive", "--quiet"]
+def certbot_renew_command(domain: str) -> list[str]:
+    """Renew one managed lineage without touching another application's certs."""
+    return ["certbot", "renew", "--non-interactive", "--quiet", "--cert-name", validate_domain(domain)]
 
 
 def deploy_hook() -> bytes:

@@ -99,6 +99,40 @@ class CLITests(unittest.TestCase):
             self.invoke("cert", "deploy", "--lineage", "/etc/letsencrypt/live/unrelated.example.com")
             publish.assert_not_called()
 
+    def test_certificate_renew_only_touches_managed_lineages_under_lock(self):
+        from sbmanager import bootstrap
+        from sbmanager.transaction import lock
+        unrelated = self.root / "etc/letsencrypt/renewal/unrelated.example.com.conf"
+        unrelated.parent.mkdir(parents=True)
+        unrelated.write_text("# another application's certificate\n")
+        calls = []
+
+        def renew(argv, **kwargs):
+            # main() must retain its management lock while Certbot runs.
+            with self.assertRaisesRegex(RuntimeError, "management lock"):
+                with lock(self.root):
+                    self.fail("Certificate renewal released the management lock")
+            calls.append((argv, kwargs))
+
+        def stage(lineage, saved, root):
+            name = Path(lineage).name
+            return {"/etc/sb/certificates/" + name + "/fullchain.pem": name.encode()}
+
+        with mock.patch.object(cli.system, "require_linux_root"), mock.patch.object(cli.os, "umask"), \
+             mock.patch.object(bootstrap, "recover_acme"), mock.patch.object(cli.system, "run", side_effect=renew), \
+             mock.patch.object(cli.certificates, "stage_lineage", side_effect=stage) as stages, \
+             mock.patch.object(cli, "publish", return_value="renewal-transaction") as publish, \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.main(["--root", str(self.root), "cert", "renew"]), 0)
+        names = ["site.example.com", "sub.example.com"]
+        self.assertEqual(calls, [(["certbot", "renew", "--non-interactive", "--quiet", "--cert-name", name,
+                                  "--no-directory-hooks"], {"timeout": 600}) for name in names])
+        self.assertEqual([call.args[0] for call in stages.call_args_list],
+                         ["/etc/letsencrypt/live/" + name for name in names])
+        self.assertEqual(publish.call_args.kwargs["extra"],
+                         {"/etc/sb/certificates/" + name + "/fullchain.pem": name.encode() for name in names})
+        self.assertEqual(unrelated.read_text(), "# another application's certificate\n")
+
 
 if __name__ == "__main__":
     unittest.main()
