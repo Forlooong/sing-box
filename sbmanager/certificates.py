@@ -100,18 +100,21 @@ def _run(command: list[str], *, data: bytes | None = None) -> bytes:
 
 
 def validate_pair(chain: bytes, private_key: bytes, domains: list[str], *, openssl: str = "openssl",
-                  ca_file: str | Path | None = None) -> None:
+                  ca_file: str | Path | None = None, check_time: bool = True) -> None:
     """Validate chain trust, server purpose, hostname, expiry, and matching keys.
 
     Only the public chain goes into a temporary file; private keys are supplied
     to OpenSSL on stdin. ca_file is intended for an isolated test trust anchor.
     Production callers omit it and use the operating system's trust store.
+    check_time=False is only for deciding whether an existing certificate can
+    still be loaded by Nginx; it must never authorize a new certificate candidate.
     """
     if not chain or not private_key or len(chain) > 1024 * 1024 or len(private_key) > 65536:
         raise CertificateError("certificate material is empty or too large")
     if b"-----BEGIN CERTIFICATE-----" not in chain or b"PRIVATE KEY-----" not in private_key:
         raise CertificateError("expected PEM certificate and private key")
-    _run([openssl, "x509", "-noout", "-checkend", "86400"], data=chain)
+    if check_time:
+        _run([openssl, "x509", "-noout", "-checkend", "86400"], data=chain)
     certificates = re.findall(rb"-----BEGIN CERTIFICATE-----\s+.+?-----END CERTIFICATE-----", chain, re.DOTALL)
     if not certificates:
         raise CertificateError("certificate chain is malformed")
@@ -124,6 +127,8 @@ def validate_pair(chain: bytes, private_key: bytes, domains: list[str], *, opens
                     "-untrusted", str(intermediate)]
             if ca_file is not None:
                 argv.extend(["-CAfile", str(ca_file), "-no-CApath", "-no-CAstore"])
+            if not check_time:
+                argv.append("-no_check_time")
             _run(argv, data=certificates[0])
     certificate_public = _run([openssl, "x509", "-pubkey", "-noout"], data=chain)
     certificate_der = _run([openssl, "pkey", "-pubin", "-outform", "DER"], data=certificate_public)
@@ -162,6 +167,42 @@ def stage_lineage(lineage: str | Path, state: dict, root: Path = Path("/"), *, o
     validate_pair(chain, key, [domain], openssl=openssl, ca_file=ca_file)
     certificate, private_key = cert_paths(domain)
     return {certificate: chain, private_key: key}
+
+
+def managed_copy_status(domain: str, root: Path = Path("/"), *, candidate=None,
+                        openssl: str = "openssl", ca_file=None) -> dict:
+    """Separate live-copy validity from safe Nginx loading of expired material."""
+    entry = {"domain": validate_domain(domain), "valid": False, "loadable": False}
+    paths = cert_paths(domain)
+    try:
+        material = [candidate[path] if candidate and path in candidate else (root / path.lstrip("/")).read_bytes()
+                    for path in paths]
+        try:
+            validate_pair(*material, [domain], openssl=openssl, ca_file=ca_file)
+            entry.update(valid=True, loadable=True)
+        except CertificateError as exc:
+            entry["error"] = str(exc)
+            validate_pair(*material, [domain], openssl=openssl, ca_file=ca_file, check_time=False)
+            entry["loadable"] = True
+    except (OSError, CertificateError) as exc:
+        entry["error"] = str(exc)
+    return entry
+
+
+def stage_sync(state: dict, root: Path = Path("/"), *, names=None) -> tuple[dict, list]:
+    """Stage each lineage independently; keep every failure visible to the CLI."""
+    files, failed = {}, []
+    for name in managed_domains(state) if names is None else names:
+        try:
+            candidate = stage_lineage("/etc/letsencrypt/live/" + name, state, root)
+            if any(not (root / path.lstrip("/")).exists()
+                   or (root / path.lstrip("/")).read_bytes() != data for path, data in candidate.items()):
+                files.update(candidate)
+        except (OSError, CertificateError) as exc:
+            status = managed_copy_status(name, root)
+            failed.append({"domain": name, "lineage_error": str(exc), "copy_valid": status["valid"],
+                           "copy_loadable": status["loadable"], **({"copy_error": status["error"]} if "error" in status else {})})
+    return files, failed
 
 
 def certificate_status(state: dict, root: Path = Path("/"), *, openssl: str = "openssl",

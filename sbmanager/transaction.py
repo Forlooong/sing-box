@@ -247,10 +247,21 @@ class Transaction:
         record = json.loads((folder / "journal.json").read_bytes())
         if record["status"] != "committed":
             raise ValueError("Only a committed transaction can be rolled back")
-        newer = [p for p in self.base.glob("*/journal.json") if p.parent.name > identifier
-                 and json.loads(p.read_bytes())["status"] == "committed"]
-        if newer:
-            raise ValueError("Roll back newer transactions first")
+        if record.get("label") == "certificate copies":
+            raise ValueError("Certificate copies cannot be manually rolled back; repair the managed lineage and run cert sync")
+        for path in self.base.glob("*/journal.json"):
+            if path.parent.name <= identifier:
+                continue
+            newer = json.loads(path.read_bytes())
+            if newer["status"] != "committed":
+                continue
+            if newer.get("label") != "certificate copies":
+                raise ValueError("Roll back newer transactions first")
+            # Certificate renewal has independent activation and is deliberately
+            # not reversible through a generic service snapshot. It must not
+            # block an unrelated config rollback or be overwritten by one.
+            if set(record["files"]) & set(newer["files"]):
+                raise ValueError("Rollback overlaps a newer certificate copy transaction; preserve the renewed certificates and repair forward")
         previous_state = logical_path(folder / "before", "/etc/sb/state.json")
         if previous_state.exists():
             rules_state = json.loads(previous_state.read_bytes()).get("rules", {})

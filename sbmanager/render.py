@@ -121,6 +121,43 @@ def _tls(node: dict, credentials: dict, site_domains: list[str], ports: dict) ->
     return result
 
 
+def plan_reality_listener(state: dict, node: dict, occupied=()) -> tuple[dict | None, int]:
+    """Keep an SNI's listener identity; reserve disabled nodes for later enable.
+
+    The caller supplies observed host ports when creating a new listener. Imported
+    remote nodes own no local ports; retained migration listeners still do.
+    """
+    ports = _ports(state)
+    local = [item for item in state.get("nodes", []) if item.get("source") == "local"]
+    matches = [item for item in local if item.get("protocol") == "vless"
+               and item.get("security") == "reality" and item["port"] == 443
+               and item.get("sni", state["domains"]["site"]) == node["sni"]]
+    if matches:
+        # Older deployments may retain a disabled user with a superseded key.
+        prior = next((item for item in matches if item.get("enabled", True)), matches[0])
+        if _transport(prior) != _transport(node):
+            raise RenderError("This SNI already uses a different transport/path; choose a dedicated external port or another managed SNI")
+        return prior, _port(prior.get("listen_port", ports["reality"]))
+
+    reserved = {80, 443, ports["site_tls"], ports["sub_tls"], ports["sub_http"], *occupied}
+    for item in local:
+        if item["protocol"] not in ("hysteria2", "tuic"):
+            reserved.add(_port(item.get("listen_port", ports["reality"] if item["port"] == 443 else item["port"])))
+    legacy = state.get("legacy", {})
+    for listener in legacy.get("listeners", {}).values():
+        if listener.get("listen_port") is not None:
+            reserved.add(_port(listener["listen_port"]))
+    for entry in legacy.get("entries", []):
+        match = re.fullmatch(r"127\.0\.0\.1:([0-9]{1,5})", entry.get("upstream", ""))
+        if match:
+            reserved.add(_port(int(match[1])))
+    port = ports["reality"] if ports["reality"] not in reserved else next(
+        (port for port in range(20000, 60000) if port not in reserved), None)
+    if port is None:
+        raise RenderError("No available internal TCP port for the new REALITY SNI")
+    return None, port
+
+
 def render_inbounds(state: dict, secrets: dict) -> tuple[list[dict], dict[str, str]]:
     ports = _ports(state)
     site_domains, _ = _domains(state)

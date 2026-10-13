@@ -107,16 +107,17 @@ class CLITests(unittest.TestCase):
         self.assertEqual(before, (self.root / "etc/sb/state.json").read_bytes())
 
     def test_certificate_sync_repairs_missed_hook_and_skips_unchanged_copies(self):
+        from sbmanager import certsync
         cert_path = "/etc/sb/certificates/site.example.com/fullchain.pem"
         with mock.patch.object(cli.certificates, "stage_lineage", return_value={cert_path: b"new"}), \
-             mock.patch.object(cli, "publish", return_value="fixture-transaction") as publish:
+             mock.patch.object(cli, "publish") as publish:
             self.invoke("cert", "sync", "--scheduled")
-            self.assertEqual(publish.call_args.kwargs["extra"], {cert_path: b"new"})
             target = state.logical_path(self.root, cert_path)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(b"new")
-            publish.reset_mock()
+            self.assertEqual(target.read_bytes(), b"new")
+            self.assertIn("nginx", json.loads(state.logical_path(self.root, certsync.PENDING).read_bytes()))
+            before = set((self.root / "var/backups/sb/transactions").iterdir())
             self.invoke("cert", "sync", "--scheduled")
+            self.assertEqual(set((self.root / "var/backups/sb/transactions").iterdir()), before)
             publish.assert_not_called()
             self.invoke("cert", "deploy", "--lineage", "/etc/letsencrypt/live/unrelated.example.com")
             publish.assert_not_called()

@@ -77,7 +77,7 @@ def binaries(directory):
 def certificates(directory):
     cert, key = directory / "fullchain.pem", directory / "privkey.pem"
     run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2",
-         "-subj", "/CN=site.example.com", "-addext", "subjectAltName=DNS:site.example.com,DNS:sub.example.com",
+         "-subj", "/CN=site.example.com", "-addext", "subjectAltName=DNS:site.example.com,DNS:sub.example.com,DNS:new.example.com",
          "-keyout", key, "-out", cert])
     key.chmod(0o600)
     return cert, key
@@ -179,6 +179,9 @@ def traffic(directory, cores):
     public["ports"] = {name: free_port() for name in ("reality", "site_tls", "sub_tls", "sub_http")}
     public["ports"]["hy2"] = edge
     cli.add_local(public, secret, name="Reality", offline=True)
+    cli.add_local(public, secret, name="Reality second user", offline=True)
+    cli.change_domain(public, "site", "new.example.com")
+    cli.add_local(public, secret, name="Reality new SNI", offline=True)
     cli.add_local(public, secret, name="HY2", protocol="hysteria2", port=edge, offline=True)
     cli.add_local(public, secret, name="VMess HTTP", protocol="vmess", port=free_port(),
                   transport="http", security="none", path="/vmess-test", offline=True)
@@ -195,7 +198,7 @@ def traffic(directory, cores):
     http = re.sub(r"listen \[::\]:80(?: default_server)?;", "", http)
     http = http.replace("/var/www/sb-site", str(site)).replace("/var/www/sb-acme", str(site))
     http = http.replace("/etc/nginx/sb/legacy-http.conf", str(legacy))
-    for domain in ("site.example.com", "sub.example.com"):
+    for domain in ("site.example.com", "sub.example.com", "new.example.com"):
         http = http.replace("/etc/sb/certificates/" + domain + "/fullchain.pem", str(cert))
         http = http.replace("/etc/sb/certificates/" + domain + "/privkey.pem", str(key))
     stream = files["/etc/nginx/sb/stream.conf"].decode()
@@ -231,12 +234,50 @@ def traffic(directory, cores):
     target_thread.start()
     processes, logs = [], []
     verified = []
+
+    def client_request(node, *, invalid=False, retired=False):
+        candidate = dict(node, server="127.0.0.1", port=node["port"] if node["protocol"] == "vmess" else edge)
+        proxy = protocols.to_mihomo(candidate, secret["nodes"][node["id"]])
+        # Pin only the temporary test certificate without editing the system CA.
+        if node["protocol"] == "hysteria2":
+            der = run(["openssl", "x509", "-in", cert, "-outform", "DER"], text=False)
+            proxy["fingerprint"] = hashlib.sha256(der).hexdigest()
+        if invalid:
+            if node["protocol"] in ("vless", "vmess"):
+                proxy["uuid"] = "00000000-0000-0000-0000-000000000001"
+            else:
+                proxy["fingerprint"] = "00" * 32
+        mixed = free_port()
+        client = {"mixed-port": mixed, "allow-lan": False, "bind-address": "127.0.0.1", "mode": "rule",
+                  "log-level": "warning", "dns": {"enable": False}, "proxies": [proxy],
+                  "rules": ["MATCH," + node["name"]]}
+        stem = node["id"] + ("-invalid" if invalid else "-retired" if retired else "-valid")
+        client_file = directory / (stem + ".yaml")
+        client_file.write_text(yaml.safe_dump(client, allow_unicode=True))
+        log = (directory / (stem + ".log")).open("w+")
+        logs.append(log)
+        process = subprocess.Popen([str(cores["mihomo"]), "-d", str(directory), "-f", str(client_file)], stdout=log, stderr=subprocess.STDOUT)
+        processes.append(process)
+        wait_port(mixed, processes)
+        negative = invalid or retired
+        response = subprocess.run(["curl", "--silent", "--show-error", "--fail", "--noproxy", "", "--max-time", "5" if negative else "15",
+                                   "--proxy", f"socks5h://127.0.0.1:{mixed}", f"http://127.0.0.1:{target.server_port}/"],
+                                  capture_output=True, timeout=8 if negative else 18)
+        if negative and response.returncode == 0:
+            raise AssertionError("Invalid or retired credentials unexpectedly succeeded")
+        if not negative and (response.returncode or response.stdout != b"sb-integration-proxy-data"):
+            raise AssertionError(node["name"] + " proxy traffic failed or content mismatched")
+        process.terminate()
+        process.wait(timeout=10)
+        processes.remove(process)
+
     try:
         for name, argv in (("nginx", [nginx, "-e", "stderr", "-p", directory, "-c", config]),
                            ("sing-box", [cores["sing-box"], "run", "-c", core_config])):
             log = (directory / (name + ".log")).open("w+")
             logs.append(log)
             processes.append(subprocess.Popen([str(v) for v in argv], stdout=log, stderr=subprocess.STDOUT))
+        core_process = processes[-1]
         wait_port(edge, processes)
         wait_port(public["ports"]["reality"], processes)
         curl = ["curl", "--silent", "--show-error", "--fail", "--noproxy", "*", "--max-time", "12", "--cacert", cert]
@@ -251,51 +292,30 @@ def traffic(directory, cores):
             raise AssertionError("SNI subscription path did not return the generated bundle")
         verified.append("HTTPS subscription via separate SNI")
         for node in public["nodes"]:
-            candidate = dict(node, server="127.0.0.1", port=node["port"] if node["protocol"] == "vmess" else edge)
-            proxy = protocols.to_mihomo(candidate, secret["nodes"][node["id"]])
-            # Trust the temporary self-signed fixture by its exact leaf pin. This
-            # exercises certificate verification without editing the system CA.
-            if node["protocol"] == "hysteria2":
-                der = run(["openssl", "x509", "-in", cert, "-outform", "DER"], text=False)
-                proxy["fingerprint"] = hashlib.sha256(der).hexdigest()
-            mixed = free_port()
-            client = {"mixed-port": mixed, "allow-lan": False, "bind-address": "127.0.0.1", "mode": "rule",
-                      "log-level": "warning", "dns": {"enable": False}, "proxies": [proxy],
-                      "rules": ["MATCH," + node["name"]]}
-            client_file = directory / (node["protocol"] + "-client.yaml")
-            client_file.write_text(yaml.safe_dump(client, allow_unicode=True))
-            log = (directory / (node["protocol"] + "-client.log")).open("w+")
-            logs.append(log)
-            process = subprocess.Popen([str(cores["mihomo"]), "-d", str(directory), "-f", str(client_file)], stdout=log, stderr=subprocess.STDOUT)
-            processes.append(process)
-            wait_port(mixed, processes)
-            body = run(["curl", "--silent", "--show-error", "--fail", "--noproxy", "", "--max-time", "15",
-                        "--proxy", f"socks5h://127.0.0.1:{mixed}", f"http://127.0.0.1:{target.server_port}/"])
-            if body != "sb-integration-proxy-data":
-                raise AssertionError("Proxy traffic content mismatch")
-            verified.append(node["protocol"] + " Mihomo to sing-box proxied TCP traffic")
-            process.terminate()
-            process.wait(timeout=10)
-            processes.remove(process)
+            client_request(node)
+            verified.append(node["name"] + " Mihomo to sing-box proxied TCP traffic")
             # A negative control proves the successful request depended on proxy
             # authentication/certificate verification, rather than a direct path.
-            if node["protocol"] in ("vless", "vmess"):
-                proxy["uuid"] = "00000000-0000-0000-0000-000000000001"
-            else:
-                proxy["fingerprint"] = "00" * 32
-            client_file.write_text(yaml.safe_dump(client, allow_unicode=True))
-            failed = subprocess.Popen([str(cores["mihomo"]), "-d", str(directory), "-f", str(client_file)], stdout=log, stderr=subprocess.STDOUT)
-            processes.append(failed)
-            wait_port(mixed, processes)
-            negative = subprocess.run(["curl", "--silent", "--show-error", "--fail", "--noproxy", "", "--max-time", "5",
-                                       "--proxy", f"socks5h://127.0.0.1:{mixed}", f"http://127.0.0.1:{target.server_port}/"],
-                                      capture_output=True, timeout=8)
-            if negative.returncode == 0:
-                raise AssertionError("Invalid authentication or certificate pin unexpectedly succeeded")
-            verified.append(node["protocol"] + " invalid " + ("UUID" if node["protocol"] in ("vless", "vmess") else "certificate pin") + " refused")
-            failed.terminate()
-            failed.wait(timeout=10)
-            processes.remove(failed)
+            client_request(node, invalid=True)
+            verified.append(node["name"] + " invalid " + ("UUID" if node["protocol"] in ("vless", "vmess") else "certificate pin") + " refused")
+        # Revoke the first user while preserving its shared SNI listener. A real
+        # core restart must still authenticate the sibling and the new SNI.
+        retired = public["nodes"].pop(0)
+        files = render.render(public, secret)
+        core_config.write_text(json.dumps(remap(json.loads(files["/etc/sing-box/sb/config.json"]), cert, key, site)))
+        core_process.terminate()
+        core_process.wait(timeout=10)
+        processes.remove(core_process)
+        core_log = (directory / "sing-box-after-remove.log").open("w+")
+        logs.append(core_log)
+        processes.append(subprocess.Popen([str(cores["sing-box"]), "run", "-c", str(core_config)], stdout=core_log, stderr=subprocess.STDOUT))
+        wait_port(public["ports"]["reality"], processes)
+        client_request(retired, retired=True)
+        verified.append("removed first REALITY user's original UUID refused")
+        for node in public["nodes"][:2]:
+            client_request(node)
+            verified.append(node["name"] + " remains usable after first user removal")
+        runtime.write_bytes(subscription.render(public, secret)[subscription.DIRECTORY + "/runtime.json"])
         probe_state = copy.deepcopy(public)
         for node in probe_state["nodes"]:
             if node["protocol"] != "vmess":

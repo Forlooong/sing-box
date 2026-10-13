@@ -381,6 +381,8 @@ def prepare_host(source, state, public_addresses=(), migration=False):
             value = updates.binary(pinned["assets"][name + "-" + arch])
             _remember_write(record, target, value, 0o755)
             files[target] = value
+        from . import recovery
+        recovery.install(ROOT, files)
         return files
     except BaseException:
         rollback_preparation()

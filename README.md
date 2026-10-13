@@ -156,7 +156,7 @@ sb node import --file /root/links.txt
 
 导入只向订阅添加节点，不会在本机创建相应服务，也不抓取远程订阅 URL。同一连接重复导入会去重，改名不会生成重复节点。导入后刷新客户端订阅即可看到变化。
 
-停用本机普通节点会停止其监听；停用导入节点只会停止导出。迁移保留的旧节点需要 `sb node retire NODE_ID` 才会停止旧监听，详见[迁移说明](docs/migration.md)。
+停用本机普通节点会撤销该节点的连接凭证；若多个用户共用一个监听，其余用户继续可用。停用导入节点只会停止导出。迁移保留的旧节点需要 `sb node retire NODE_ID` 才会停止旧监听，详见[迁移说明](docs/migration.md)。
 
 ## 网站和域名
 
@@ -177,15 +177,13 @@ sb domain site site2.example.com
 
 脚本检查解析并申请证书，保留旧域名入口。现有节点继续使用原来的 SNI；仍被节点依赖的旧域名不能直接退役。
 
-**已有默认 REALITY 节点时，新增 REALITY 必须显式指定独立端口，更换网站域名后也一样。** 当前版本不会为新节点自动分配独立的内部监听；省略 `--port` 会复用默认 REALITY 内部端口（默认为 `2443`），与旧节点的密钥或 SNI 冲突，报 `incompatible local nodes share a listener`。
-
-例如，确认 TCP 24444 未被占用，在云安全组和服务器防火墙放行后执行：
+新增默认 REALITY 节点继续使用公网 TCP 443。同 SNI、同传输和路径的节点共用监听密钥，各有独立 UUID；不同 SNI 自动获得独立的 loopback 监听并加入 SNI 分流。旧节点的端口和凭证保持不变。例如，更换网站域名后执行：
 
 ```sh
-sb node add --name "新域名 REALITY" --protocol vless --security reality --port 24444
+sb node add --name "新域名 REALITY"
 ```
 
-该节点使用新网站域名作为服务器地址和 SNI，客户端连接端口为 **TCP 24444**，不经过 TCP 443 的共享入口。添加完成后刷新客户端订阅。此方法绕开现有的[监听分配限制](docs/grilling-review-2026-10-13.md#4-p2默认新增第二个-reality-节点失败)，不会修改旧节点的端口或凭证。
+该节点使用新网站域名作为服务器地址和 SNI，客户端连接端口仍为 **TCP 443**；内部端口只监听 loopback，无需在防火墙放行。添加完成后刷新客户端订阅。同一个 SNI 不能在 TCP 443 上混用不同传输或路径；需要这种组合时，指定另一个已受管的 `--sni`，或用 `--port 24444` 创建独立公网监听并放行 TCP 24444。
 
 ## 客户端配置和流量信息
 
@@ -265,7 +263,7 @@ sb update VERSION
 
 将 `VERSION` 替换为本项目[发行页面](https://github.com/Forlooong/sing-box/releases)上实际发布的版本号，且该版本须提供 `code.tar.gz` 和 `SHA256SUMS`。没有符合条件的发行版时不能使用此命令。规则更新使用 `sb rules update`。
 
-更新前保留一份独立的完整源码目录。当前版本仍有更新中断恢复、订阅重载确认、历史域名证书同步和默认新增第二个 REALITY 节点的[已知限制](docs/grilling-review-2026-10-13.md)，恢复操作见[运维说明](docs/operations.md)。
+更新会先安装独立恢复入口。发生中断时运行 `sb transaction recover`，也可直接运行 `/usr/local/bin/sb-recover`；具体步骤见[恢复说明](docs/recovery.md)。四项稳定性修复及实际验证范围见[稳定性记录](docs/stability-2026-10-13.md)。
 
 ## 故障排查
 
@@ -296,7 +294,8 @@ journalctl -u sb-sing-box -u sb-subscription -u nginx -n 100 --no-pager
 | [私有订阅](docs/subscription.md) | 模板、流量信息、历史地址与规则快照 |
 | [协议说明](docs/protocols.md) | 各协议的导入、导出、传输方式与限制 |
 | [迁移说明](docs/migration.md) | 可迁移范围、保留内容与阻断条件 |
-| [已知限制](docs/grilling-review-2026-10-13.md) | 当前尚待修复的问题与使用边界 |
+| [稳定性记录](docs/stability-2026-10-13.md) | 修复结果、真实客户端验证与使用边界 |
+| [审查记录](docs/grilling-review-2026-10-13.md) | 四项原始问题的复现证据与修复对应关系 |
 | [开发与验证记录](docs/validation.md) | 测试方法、验证范围与实机记录 |
 
 ## 致谢与许可证
