@@ -1,6 +1,6 @@
 # Debian 12 测试服务器验收
 
-2026-10-13，经用户授权，在 `70.39.195.239` 完成全新安装与公网验收。服务器为 Debian 12、amd64、Python 3.11、systemd 252。部署代码对应提交 `3269188`，运行时文件逐项与该版本源码比对一致。服务保留运行，未修改 SSH 或防火墙。
+2026-10-13，经用户授权，在 `70.39.195.239` 完成全新安装与公网验收。服务器为 Debian 12、amd64、Python 3.11、systemd 252。首次验收代码为 `3269188`；后续订阅名称与帮助更新为 `aefe5ef`，详见本文末尾。运行时文件均逐项与对应版本源码比对一致。服务保留运行，未修改 SSH 或防火墙。
 
 - 网站：<https://yunyoo.ser321761201019.040323.xyz/>
 - 订阅域名：`subnode1.040323.xyz`，路径恢复为 `private`。
@@ -42,3 +42,12 @@
 这是一台全新 Debian 12 amd64 服务器的结果。尚未覆盖 Debian 13、Ubuntu 24.04、ARM64、真实旧 Caddy/订阅部署迁移、客户端 GUI、长时间稳定性、吞吐与实际流量计量。续期使用 ACME 演练，并非等待生产证书自然到期后观察更换。
 
 公网测试从用户本机 WSL 发起，证明该客户端环境在测试时可达；不能据此保证任意地区、运营商或无代理网络的长期质量。服务器原有 `systemd-networkd-wait-online.service` 失败状态在安装前已存在，未将其归因于或作为本项目初始化任务处理。
+
+## 订阅名称与帮助更新（同日）
+
+提交 `aefe5ef` 修复了订阅缺少名称响应头的问题。修改前，真实 HTTP HEAD 返回的 `Content-Disposition` 和 `Profile-Title` 均为空；[Clash Verge Rev 2.5.8 的导入逻辑](https://github.com/clash-verge-rev/clash-verge-rev/blob/v2.5.8/src-tauri/src/config/prfitem.rs) 因而回退到 URL 最后一段。现在分别使用 RFC 5987 与 UTF-8/Base64 编码中文名称，并通过 `sb sub name "名称"` 修改。
+
+- WSL 和目标 Debian 12 均通过 128 项回归，包括实际 HTTP GET/HEAD 命名、旧状态兼容、无权限帮助入口和全部帮助示例解析。
+- 运行时代码通过事务部署，再实际执行改名命令，将名称设为“最伟大的派送员”。原订阅 URL、节点、凭证和代理核心 PID 均保持不变；单独改名时订阅服务 PID 也不变，热加载成功。
+- 从本机 WSL 通过公网 HTTPS 验证 YAML/raw 两类订阅的 GET/HEAD 共四次请求，均返回 HTTP 200，两个名称头均解码为所设名称，更新间隔仍为 12 小时。结果见[脱敏记录](evidence/subscription-name-2026-10-13.json)。未操作客户端 GUI；已有客户端本地名称可能需要手动修改或重新导入。
+- 已在服务器验证 `sb`、`sb help`、`sb --help`、主题帮助和改名查询；普通 `nobody` 用户也能读取主题帮助。`sb check` 通过，三个服务与三个定时器均 active，无未完成事务。临时订阅 URL 和凭证基线文件已删除。

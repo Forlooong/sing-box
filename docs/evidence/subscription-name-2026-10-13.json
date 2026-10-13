@@ -1,0 +1,25 @@
+{
+  "source_commit": "aefe5ef",
+  "unit_tests_wsl": 128,
+  "unit_tests_debian12": 128,
+  "name": "最伟大的派送员",
+  "before_naming_headers": {"Content-Disposition": null, "Profile-Title": null},
+  "urls_unchanged": true,
+  "nodes_and_credentials_unchanged": true,
+  "core_pid_unchanged": true,
+  "name_change_hot_reload": true,
+  "help_without_root": true,
+  "runtime_matches_source": true,
+  "sb_check": true,
+  "services_and_timers_active": true,
+  "pending_transactions": 0,
+  "public_https_verified": true,
+  "public_checks": [
+    {"artifact": "clash", "method": "GET", "status": 200, "name": "最伟大的派送员"},
+    {"artifact": "clash", "method": "HEAD", "status": 200, "name": "最伟大的派送员"},
+    {"artifact": "raw", "method": "GET", "status": 200, "name": "最伟大的派送员"},
+    {"artifact": "raw", "method": "HEAD", "status": 200, "name": "最伟大的派送员"}
+  ],
+  "gui_import_tested": false,
+  "temporary_private_files_removed": true
+}
