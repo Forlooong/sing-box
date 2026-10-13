@@ -24,4 +24,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y python3-yaml python3-cryptography curl gnupg openssl
-      - run: python3 tests/integration_core.py --traffic
+      # [DEBUG-hy2-ci] Repeat the unchanged traffic sequence to capture the flake.
+      - run: |
+          for attempt in $(seq 1 20); do
+            echo "HY2 diagnostic iteration ${attempt}/20"
+            python3 tests/integration_core.py --traffic
+          done
