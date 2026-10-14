@@ -165,7 +165,8 @@ def compile_config(state, secrets, snapshot=None, *, local_rules=None):
         if snapshot is None:
             raise ValueError("No verified rule snapshot is available; subscription was not published")
         from .rules import assemble
-        template = assemble(template, *snapshot, local_dir=local_rules)
+        template = assemble(template, *snapshot, local_dir=local_rules,
+                            override=state["subscription"].get("template", {}))
     else:
         template["rule-providers"] = {}
         template["rules"] = ["MATCH," + protocols.GROUP]
@@ -192,7 +193,9 @@ def render(state, secrets, snapshot=None):
     if len(runtime) > MAX_BUNDLE or len(clash) > MAX_BUNDLE // 2 or len(raw) > MAX_BUNDLE // 2:
         raise ValueError("Subscription exceeds the HTTP runtime resource limit")
     diagnostics = {"exported_nodes": len(document["proxies"]), "omitted_nodes": omitted,
-                   "rules_build": snapshot[0]["build_id"] if snapshot else None}
+                   "rules_build": snapshot[0]["build_id"] if snapshot else None,
+                   "rules_channel": state["rules"].get("channel", "v1"),
+                   "rules_policy": snapshot[0].get("policy_version") if snapshot else None}
     return {DIRECTORY + "/runtime.json": runtime,
             DIRECTORY + "/clash.yaml": clash, DIRECTORY + "/raw.txt": raw,
             DIRECTORY + "/template.yaml": yaml.safe_dump(template_config(state["subscription"].get("template", {})), allow_unicode=True, sort_keys=False).encode(),

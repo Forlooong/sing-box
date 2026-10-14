@@ -4,10 +4,12 @@ import errno
 import os
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
 import unittest
 from unittest import mock
 
-from sbmanager import state
+from sbmanager import state, system
 from sbmanager.transaction import Transaction, lock, atomic
 from sbmanager.system import patch_nginx
 
@@ -122,6 +124,83 @@ class TransactionTests(unittest.TestCase):
             atomic(journal, state.encode(record))
             tx.recover()
             self.assertEqual((root / "etc/sb/fixture").read_bytes(), b"before")
+
+
+class CertificateCopyTransactionTests(unittest.TestCase):
+    certificate = "/etc/sb/certificates/site.example.com/fullchain.pem"
+    pending = "/var/lib/sb/certificate-sync/pending.json"
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+        self.tx = Transaction(self.root)
+        self.old_queue = state.encode({"nginx": ["old.example.com"]})
+        atomic(state.logical_path(self.root, self.certificate), b"old certificate")
+        atomic(state.logical_path(self.root, self.pending), self.old_queue)
+
+    def copy(self):
+        return self.tx.apply({self.certificate: b"renewed certificate", self.pending: state.encode({
+            "nginx": ["site.example.com"]})}, label="certificate copies")
+
+    def test_manual_certificate_copy_rollback_is_rejected_without_mutation(self):
+        identifier = self.copy()
+        before = {path: state.logical_path(self.root, path).read_bytes() for path in (self.certificate, self.pending)}
+        restored = mock.Mock()
+        with self.assertRaisesRegex(ValueError, "cert sync"):
+            self.tx.rollback(identifier, restore_services=restored)
+        restored.assert_not_called()
+        for path, value in before.items():
+            self.assertEqual(state.logical_path(self.root, path).read_bytes(), value)
+        self.assertEqual(json.loads((self.tx.base / identifier / "journal.json").read_bytes())["status"], "committed")
+
+    def test_interrupted_copy_recovery_restores_old_files_and_queue_without_restarting_services(self):
+        script = """
+import os, sys
+from pathlib import Path
+from sbmanager import state
+from sbmanager.transaction import Transaction
+Transaction(Path(sys.argv[1])).apply({sys.argv[2]: b"renewed certificate", sys.argv[3]: state.encode({"nginx": ["site.example.com"]})},
+    label="certificate copies", activate=lambda record: os._exit(92))
+"""
+        process = subprocess.run([sys.executable, "-B", "-c", script, str(self.root), self.certificate, self.pending],
+                                 capture_output=True, timeout=20)
+        self.assertEqual(process.returncode, 92, process.stderr.decode())
+        journal = next(self.tx.base.glob("*/journal.json"))
+        self.assertEqual(json.loads(journal.read_bytes())["status"], "applying")
+        self.assertEqual(state.logical_path(self.root, self.certificate).read_bytes(), b"renewed certificate")
+        with mock.patch.object(system, "run") as run:
+            self.tx.recover(restore_services=system.restore_services)
+        self.assertEqual(run.call_args_list, [mock.call(["systemctl", "daemon-reload"])])
+        self.assertEqual(state.logical_path(self.root, self.certificate).read_bytes(), b"old certificate")
+        self.assertEqual(state.logical_path(self.root, self.pending).read_bytes(), self.old_queue)
+        self.assertEqual(json.loads(journal.read_bytes())["status"], "rolled-back")
+
+    def test_newer_certificate_copies_do_not_block_disjoint_configuration_rollback(self):
+        path = "/etc/sb/ordinary-setting"
+        atomic(state.logical_path(self.root, path), b"before")
+        identifier = self.tx.apply({path: b"after"})
+        self.copy()
+        self.tx.rollback(identifier)
+        self.assertEqual(state.logical_path(self.root, path).read_bytes(), b"before")
+        self.assertEqual(state.logical_path(self.root, self.certificate).read_bytes(), b"renewed certificate")
+        self.assertEqual(json.loads(state.logical_path(self.root, self.pending).read_bytes()), {"nginx": ["site.example.com"]})
+
+    def test_newer_certificate_copies_block_overlapping_configuration_rollback(self):
+        identifier = self.tx.apply({self.certificate: b"intermediate certificate"}, label="domain change")
+        self.copy()
+        with self.assertRaisesRegex(ValueError, "overlaps.*certificate"):
+            self.tx.rollback(identifier)
+        self.assertEqual(state.logical_path(self.root, self.certificate).read_bytes(), b"renewed certificate")
+        self.assertEqual(json.loads((self.tx.base / identifier / "journal.json").read_bytes())["status"], "committed")
+
+    def test_ordinary_newer_transactions_still_block_out_of_order_rollback(self):
+        identifier = self.tx.apply({"/etc/sb/earlier": b"first"})
+        self.copy()
+        self.tx.apply({"/etc/sb/later": b"second"})
+        with self.assertRaisesRegex(ValueError, "newer transactions first"):
+            self.tx.rollback(identifier)
+        self.assertEqual(state.logical_path(self.root, "/etc/sb/earlier").read_bytes(), b"first")
 
 
 if __name__ == "__main__":

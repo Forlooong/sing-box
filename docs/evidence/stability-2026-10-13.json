@@ -1,0 +1,265 @@
+{
+  "status": "passed",
+  "platform": "Debian 12 amd64",
+  "ci": {
+    "commit": "aeaabcc213efe821ea28ca6a043d1818acbc64a9",
+    "run": "https://github.com/Forlooong/sing-box/actions/runs/38420478197",
+    "jobs": {
+      "unit_3_11": "success",
+      "unit_3_12": "success",
+      "unit_3_13": "success",
+      "linux_core_and_soak_fixture": "success"
+    }
+  },
+  "unit_tests": {
+    "wsl_root": {
+      "passed": 189,
+      "skipped": 0
+    },
+    "debian12_root": {
+      "passed": 189,
+      "skipped": 0
+    }
+  },
+  "deployment": {
+    "status": "passed",
+    "transaction": "20261013T145836Z-1791903516903998883-a20365",
+    "generation": "e5c153c30992e13cf7d6c8a38cd5d7f48441dbfde1b57a8735eb93639f485b47",
+    "credentials_nodes_domains_subscription_preserved": true,
+    "installed_runtime_matches_candidate": true,
+    "candidate_sha256": "dd9f0aea18787d49c17ca912b211fdce85bacd62196b689f1776e9e637ba36e3"
+  },
+  "runtime_verification": {
+    "commit": "d592bea2f46e1189f26202fb3c1f2570da567016",
+    "runtime_files": 29,
+    "installed_runtime_matches_commit": true
+  },
+  "live_checks": {
+    "status": "passed",
+    "checks": [
+      {
+        "check": "independent_recovery_entry_installed",
+        "status": "passed"
+      },
+      {
+        "check": "full_check_before_fault",
+        "status": "passed"
+      },
+      {
+        "check": "subscription_publish_while_core_stays_stopped",
+        "status": "passed"
+      },
+      {
+        "check": "subscription_transaction_service_scope",
+        "status": "passed"
+      },
+      {
+        "check": "subscription_transaction_file_scope",
+        "status": "passed"
+      },
+      {
+        "check": "nginx_and_subscription_pids_preserved",
+        "status": "passed"
+      },
+      {
+        "check": "core_nginx_credentials_unchanged",
+        "status": "passed"
+      },
+      {
+        "check": "full_check_after_core_restore",
+        "status": "passed"
+      },
+      {
+        "check": "certificate_sync_current_lineages",
+        "status": "passed"
+      },
+      {
+        "check": "certificate_queue_initially_empty",
+        "status": "passed"
+      },
+      {
+        "check": "persisted_certificate_activation_retry",
+        "status": "passed"
+      },
+      {
+        "check": "certificate_queue_drained",
+        "status": "passed"
+      },
+      {
+        "check": "certificate_bytes_unchanged_during_retry",
+        "status": "passed"
+      },
+      {
+        "check": "baseline_identity_preserved",
+        "status": "passed"
+      },
+      {
+        "check": "no_unfinished_transactions",
+        "status": "passed"
+      }
+    ],
+    "certificate_test": "retry current valid certificate activation; no certificate renewal requested"
+  },
+  "final_server": {
+    "full_check": true,
+    "baseline_identity_preserved": true,
+    "unfinished_transactions": 0,
+    "certificate_queue_empty": true,
+    "services_and_timers_active": {
+      "nginx": true,
+      "sb-sing-box": true,
+      "sb-subscription": true,
+      "sb-rules.timer": true,
+      "sb-cert-sync.timer": true,
+      "certbot.timer": true
+    },
+    "runtime_matches_commit": true,
+    "commit": "d592bea2f46e1189f26202fb3c1f2570da567016",
+    "status": "passed"
+  },
+  "public_client": {
+    "status": "passed",
+    "checks": [
+      {
+        "check": "protected_bundle",
+        "status": "passed"
+      },
+      {
+        "check": "public_https_site",
+        "status": "passed"
+      },
+      {
+        "check": "public_https_subscription",
+        "status": "passed"
+      },
+      {
+        "check": "pinned_core_hashes",
+        "status": "passed"
+      },
+      {
+        "check": "reality_public_traffic",
+        "status": "passed"
+      },
+      {
+        "check": "reality_invalid_credential_rejected",
+        "status": "passed"
+      },
+      {
+        "check": "reality_traffic_after_negative_control",
+        "status": "passed"
+      },
+      {
+        "check": "hy2_public_traffic",
+        "status": "passed"
+      },
+      {
+        "check": "hy2_invalid_credential_rejected",
+        "status": "passed"
+      },
+      {
+        "check": "hy2_traffic_after_negative_control",
+        "status": "passed"
+      }
+    ]
+  },
+  "client_soak": {
+    "started_at": "2026-10-13T15:01:05.003017+00:00",
+    "summary": {
+      "elapsed_seconds": 3600.05,
+      "traffic": {
+        "reality": {
+          "passed": 120,
+          "failed": 0
+        },
+        "hy2": {
+          "passed": 120,
+          "failed": 0
+        }
+      },
+      "refreshes_passed": 10,
+      "refreshes_failed": 0,
+      "final_checks_failed": 0,
+      "status": "passed",
+      "event": "summary"
+    },
+    "protocols": {
+      "reality": {
+        "traffic": {
+          "passed": 120
+        },
+        "persistent_pid": true,
+        "rss_kib_min": 73368,
+        "rss_kib_max": 93560,
+        "latency_ms_p95_nearest_rank": 2634.5,
+        "latency_ms_max": 4745.7,
+        "provider_retry_attempts": 1,
+        "provider_retry_failures": 0
+      },
+      "hy2": {
+        "traffic": {
+          "passed": 120
+        },
+        "persistent_pid": true,
+        "rss_kib_min": 73364,
+        "rss_kib_max": 93996,
+        "latency_ms_p95_nearest_rank": 1380.4,
+        "latency_ms_max": 2394.2,
+        "provider_retry_attempts": 0,
+        "provider_retry_failures": 0
+      }
+    }
+  },
+  "server_soak": {
+    "started_at": "2026-10-13T15:00:59.546012+00:00",
+    "summary": {
+      "event": "summary",
+      "status": "passed",
+      "elapsed_seconds": 3926.649,
+      "samples": 132,
+      "services_active_pids_and_restart_counts_stable": true
+    },
+    "services": {
+      "nginx": {
+        "persistent_pid": true,
+        "restart_counts": [
+          0
+        ],
+        "rss_kib_min": 7532,
+        "rss_kib_max": 7532
+      },
+      "sb-sing-box": {
+        "persistent_pid": true,
+        "restart_counts": [
+          0
+        ],
+        "rss_kib_min": 70016,
+        "rss_kib_max": 81624
+      },
+      "sb-subscription": {
+        "persistent_pid": true,
+        "restart_counts": [
+          0
+        ],
+        "rss_kib_min": 22748,
+        "rss_kib_max": 22748
+      }
+    }
+  },
+  "first_soak_startup_failure": {
+    "category": "rule_providers_not_ready",
+    "cause": "one initial public rule provider download timed out; 16 of 17 loaded",
+    "resolution": "bounded HTTP provider retry; all 17 must load before the measured duration begins"
+  },
+  "scope": {
+    "client": "Mihomo 1.19.32 command-line clients on user WSL network",
+    "mode": "global forced REALITY and HY2; complete subscription retained",
+    "rule_routing_decisions": false,
+    "client_gui": false,
+    "production_certificate_natural_expiry": false,
+    "other_os_architectures_or_legacy_live_migration": false
+  },
+  "raw_evidence_sha256": {
+    "client-soak-2026-10-13.jsonl": "b5584603b5aaa394d0494c53a89002bfd23b9da8e33e3ff1a21b65f492450de8",
+    "server-soak-2026-10-13.jsonl": "5bdd879cb917cdb347df1ced0e631e9ee0693f37d4fb060b98ff1df2b092845f"
+  }
+}

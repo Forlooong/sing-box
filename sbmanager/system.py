@@ -173,6 +173,17 @@ def validate_candidate(stage, *, root=Path("/"), snapshot_dir=None, remove_symli
         if not binary.exists():
             binary = logical_path(root, binary_path)
         run([binary, "check", "-c", check])
+    validate_subscription_candidate(stage, root=root, snapshot_dir=snapshot_dir)
+
+
+def validate_subscription_candidate(stage, *, root=Path("/"), snapshot_dir=None):
+    """Validate the client artifact without requiring unrelated proxy services."""
+    require_linux_root()
+    stage = Path(stage)
+    from .server import load_bundle
+    runtime = logical_path(stage, "/var/lib/sb/subscription/runtime.json")
+    if runtime.exists():
+        load_bundle(runtime)
     client = logical_path(stage, "/var/lib/sb/subscription/clash.yaml")
     if client.exists():
         import yaml
@@ -183,9 +194,12 @@ def validate_candidate(stage, *, root=Path("/"), snapshot_dir=None, remove_symli
             from . import rules
             directory = Path(snapshot_dir)
             manifest, inline = rules.load(directory.parent, directory.name)
-            value = rules.assemble(value, manifest, inline, local_dir=directory)
+            state_file = logical_path(stage, "/etc/sb/state.json")
+            override = json.loads(state_file.read_bytes()).get("subscription", {}).get("template", {}) if state_file.exists() else None
+            rules.validate_assembly(value, manifest, inline, override=override)
+            value = rules.assemble(value, manifest, inline, local_dir=directory, override=override)
         check = stage / "mihomo-check.yaml"
-        atomic(check, yaml.safe_dump(value, allow_unicode=True).encode())
+        atomic(check, yaml.safe_dump(value, allow_unicode=True, sort_keys=False).encode())
         mihomo = logical_path(stage, "/opt/sb/bin/mihomo")
         if not mihomo.exists():
             mihomo = logical_path(root, "/opt/sb/bin/mihomo")
@@ -279,26 +293,60 @@ def activate(state, record=None):
     run(["systemctl", "start" if state["rules"].get("enabled") else "stop", "sb-rules.timer"])
 
 
-def health(state, secret):
-    services = ["nginx", "sb-sing-box", "sb-subscription", *state.get("legacy", {}).get("services", [])]
-    for name in services:
-        run(["systemctl", "is-active", "--quiet", name])
+def activate_subscription(state, record):
+    """Publish content without restarting, repairing or probing proxy services."""
+    require_linux_root()
+    import grp
+    directory = logical_path(Path('/'), '/var/lib/sb/subscription')
+    gid = grp.getgrnam('sb-subscription').gr_gid
+    for path in [directory, *directory.rglob('*')]:
+        if path.is_symlink():
+            raise ValueError('Unexpected symlink in subscription directory')
+        os.chown(path, 0, gid)
+        os.chmod(path, 0o750 if path.is_dir() else 0o640)
+    active = record.get('services', {}).get('sb-subscription', {}).get('is-active')
+    if not active:
+        run(['systemctl', 'start', 'sb-subscription'])
+    elif '/var/lib/sb/subscription/runtime.json' in record.get('changed', []):
+        run(['systemctl', 'reload', 'sb-subscription'])
+
+
+def subscription_health(state, secret, *, expected_generation=None, root=Path("/")):
+    if expected_generation is None:
+        from .server import load_bundle
+        expected_generation = load_bundle(logical_path(root, "/var/lib/sb/subscription/runtime.json"))["generation"]
+    if not isinstance(expected_generation, str) or not re.fullmatch(r"[a-f0-9]{64}", expected_generation):
+        raise ValueError("Invalid expected subscription generation")
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
         try:
             with urllib.request.urlopen(f'http://127.0.0.1:{state["ports"]["sub_http"]}/healthz', timeout=2) as r:
-                if r.status == 200:
+                body = r.read(4097)
+                status = json.loads(body) if len(body) <= 4096 else None
+                if (r.status == 200 and isinstance(status, dict) and status.get("ok") is True
+                        and status.get("generation") == expected_generation):
                     break
         except (OSError, ValueError):
-            time.sleep(.25)
+            pass
+        time.sleep(.25)
     else:
-        raise RuntimeError("Subscription service failed readiness check")
+        raise RuntimeError("Subscription readiness generation does not match the candidate")
     domain = state["domains"]["subscription"]
     url = f'https://{domain}/{state["subscription"]["prefix"]}/{secret["subscription_token"]}'
     # URL in stdin, not process listing; curl output discarded and errors redacted.
     config = f'url = "{url}"\nresolve = "{domain}:443:127.0.0.1"\n'
     run(["curl", "--fail", "--silent", "--show-error", "--max-time", "10", "--config", "-", "--output", "/dev/null"],
         input=config.encode())
+
+
+def health(state, secret, *, expected_generation=None, subscription_only=False, root=Path("/")):
+    services = (["nginx", "sb-subscription"] if subscription_only else
+                ["nginx", "sb-sing-box", "sb-subscription", *state.get("legacy", {}).get("services", [])])
+    for name in services:
+        run(["systemctl", "is-active", "--quiet", name])
+    subscription_health(state, secret, expected_generation=expected_generation, root=root)
+    if subscription_only:
+        return
     site = state["domains"]["site"]
     run(["curl", "--fail", "--silent", "--http2", "--max-time", "10", "--resolve", f"{site}:443:127.0.0.1",
          f"https://{site}/", "--output", "/dev/null"])

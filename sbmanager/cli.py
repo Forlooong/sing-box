@@ -89,6 +89,8 @@ def parser():
     rules.add_parser("status")
     update = rules.add_parser("update", help="检查、校验并激活新规则快照")
     update.add_argument("--scheduled", action="store_true")
+    update.add_argument("--channel", choices=("v1", "v2"),
+                        help="显式迁移规则通道；省略时沿用当前通道，旧安装默认 v1")
     cert = commands.add_parser("cert").add_subparsers(dest="action", required=True)
     cert.add_parser("status")
     cert.add_parser("renew")
@@ -186,14 +188,26 @@ def add_local(state, secret, *, protocol="vless", name, server=None, port=None,
         credentials["username"] = "sb-" + random.token_hex(4)
     if security != "none":
         node["sni"] = registry.domain(sni or state["domains"]["site"])
-    if security == "reality":
-        private, public = reality_keys(offline)
-        credentials["private_key"] = private
-        node.update(public_key=public, short_id=random.token_hex(8), fingerprint="chrome")
-        if transport == "tcp":
-            node["flow"] = "xtls-rprx-vision"
     if transport not in {"tcp", "quic"}:
         node.update(path=path, host=node.get("sni", state["domains"]["site"]))
+    if security == "reality":
+        prior = None
+        if protocol == "vless" and node["port"] == 443:
+            prior, listener_port = render.plan_reality_listener(state, node)
+            if prior is None and not offline:
+                prior, listener_port = render.plan_reality_listener(state, node, system.occupied_ports())
+            node.update(listen="127.0.0.1", listen_port=listener_port)
+        if prior is None:
+            private, public = reality_keys(offline)
+            credentials["private_key"] = private
+            node.update(public_key=public, short_id=random.token_hex(8), fingerprint="chrome")
+        else:
+            credentials["private_key"] = secret["nodes"][prior["id"]]["private_key"]
+            for field in ("public_key", "short_id", "fingerprint", "alpn"):
+                if field in prior:
+                    node[field] = copy.deepcopy(prior[field])
+        if transport == "tcp":
+            node["flow"] = "xtls-rprx-vision"
     protocols.to_mihomo(node, credentials)
     state["nodes"].append(node)
     secret["nodes"][identifier] = credentials
@@ -245,15 +259,20 @@ def snapshot_for(root, state):
     if not state["rules"].get("enabled"):
         return None
     from . import rules
-    return rules.load(registry.logical_path(root, "/var/lib/sb/rules"), state["rules"].get("active_build"))
+    return rules.load(registry.logical_path(root, "/var/lib/sb/rules"), state["rules"].get("active_build"),
+                      channel=state["rules"].get("channel", "v1"))
 
 
 def publish(args, state, secret, *, extra=None, snapshot=None, label="change", commit=lambda: None):
+    from . import publication
     if snapshot is None:
         snapshot = snapshot_for(args.root, state)
-    files = compile_files(args.root, state, secret, snapshot, extra)
+    sub_only = publication.subscription_only(args, state, secret, extra)
+    files = (publication.compile_subscription(state, secret, snapshot) if sub_only else
+             compile_files(args.root, state, secret, snapshot, extra))
     switches = state.get("legacy", {}).get("switch", {})
-    services = set(system.SERVICES) | set(switches.get("stop_services", [])) | set(switches.get("start_services", []))
+    services = ({"sb-subscription"} if sub_only else
+                set(system.SERVICES) | set(switches.get("stop_services", [])) | set(switches.get("start_services", [])))
     snapshot_dir = None
     if snapshot:
         snapshot_dir = registry.logical_path(args.root, "/var/lib/sb/rules/" + snapshot[0]["build_id"])
@@ -261,15 +280,22 @@ def publish(args, state, secret, *, extra=None, snapshot=None, label="change", c
             from . import rules
             cache = registry.logical_path(args.root, "/var/lib/sb/rules")
             config = files["/var/lib/sb/subscription/clash.yaml"]
-            receipt = rules.validate(cache, snapshot[0]["build_id"], config, Path("/opt/sb/bin/mihomo"))
+            receipt = rules.validate(cache, snapshot[0]["build_id"], config, Path("/opt/sb/bin/mihomo"),
+                                     override=state["subscription"].get("template", {}))
             files.update(rules.activation_artifacts(cache, snapshot[0]["build_id"], receipt, config))
+    generation = json.loads(files[subscription.DIRECTORY + "/runtime.json"])["generation"]
+    def validate(stage):
+        if sub_only:
+            system.validate_subscription_candidate(stage, root=args.root, snapshot_dir=snapshot_dir)
+        else:
+            system.validate_candidate(stage, root=args.root, snapshot_dir=snapshot_dir, remove_symlinks=switches.get("remove_symlinks"))
     identifier = Transaction(args.root).apply(files,
-        validate=(lambda _: None) if args.offline else lambda stage: system.validate_candidate(stage, snapshot_dir=snapshot_dir, remove_symlinks=switches.get("remove_symlinks")),
-        activate=(lambda _: None) if args.offline else lambda record: system.activate(state, record),
-        health=(lambda: None) if args.offline else lambda: system.health(state, secret),
+        validate=(lambda _: None) if args.offline else validate,
+        activate=(lambda _: None) if args.offline else lambda record: (system.activate_subscription if sub_only else system.activate)(state, record),
+        health=(lambda: None) if args.offline else lambda: system.health(state, secret, expected_generation=generation, subscription_only=sub_only, root=args.root),
         restore_services=(lambda _: None) if args.offline else system.restore_services,
         service_state={} if args.offline else system.service_state(services),
-        remove_symlinks=switches.get("remove_symlinks", {}), label=label, commit=commit)
+        remove_symlinks={} if sub_only else switches.get("remove_symlinks", {}), label=label, commit=commit)
     return identifier
 
 
@@ -525,16 +551,16 @@ def execute(args):
             output(certificates.certificate_status(state, args.root))
             return
         if args.action == "sync":
-            for name in certificates.managed_domains(state):
-                candidate = certificates.stage_lineage("/etc/letsencrypt/live/" + name, state, args.root)
-                for path, data in candidate.items():
-                    current = registry.logical_path(args.root, path)
-                    if not current.exists() or current.read_bytes() != data:
-                        extra[path] = data
-            if not extra:
-                if not args.scheduled:
-                    output({"unchanged": True})
-                return
+            from .certsync import synchronize
+            result = synchronize(state, secret, args.root, offline=args.offline)
+            if not args.scheduled or not result.get("unchanged") or result["failed"] or result["deferred"]:
+                output(result)
+            if result["failed"] or (result["deferred"] and not args.offline):
+                names = ", ".join(row["domain"] for row in result["failed"])
+                raise certificates.CertificateError("Certificate synchronization incomplete"
+                                                    + (": " + names if names else "")
+                                                    + "; validated copies and pending activations are reported above")
+            return
         elif args.action == "renew":
             if args.offline:
                 raise ValueError("Renewal requires a live host")
@@ -558,18 +584,21 @@ def execute(args):
         from . import rules
         cache = registry.logical_path(args.root, "/var/lib/sb/rules")
         if args.action == "status":
-            output(state["rules"])
+            output(dict(state["rules"], channel=state["rules"].get("channel", "v1")))
             return
-        build = rules.stage(cache)
-        if build == state["rules"].get("active_build") and state["rules"].get("enabled"):
+        channel = args.channel or state["rules"].get("channel", "v1")
+        build = rules.stage(cache, channel=channel)
+        if (build == state["rules"].get("active_build") and state["rules"].get("enabled")
+                and channel == state["rules"].get("channel", "v1")):
             if not args.scheduled:
                 output({"unchanged": build})
             return
-        snapshot = rules.load(cache, build)
-        state["rules"].update(enabled=True, active_build=build)
+        snapshot = rules.load(cache, build, channel=channel)
+        state["rules"].update(enabled=True, active_build=build, channel=channel)
         if args.offline:
             raise ValueError("Rule activation requires actual Mihomo validation")
         result["rules_build"] = build
+        result["rules_channel"] = channel
         result["transaction"] = publish(args, state, secret, extra=extra, snapshot=snapshot, label="rules update")
         output(result)
         return
@@ -587,7 +616,8 @@ def execute(args):
         identifier = Transaction(args.root).apply(files,
             validate=lambda stage: system.validate_candidate(stage, snapshot_dir=snapshot_dir),
             activate=lambda record: system.activate(updated_state, record),
-            health=lambda: system.health(updated_state, updated_secret),
+            health=lambda: system.health(updated_state, updated_secret,
+                expected_generation=json.loads(files[subscription.DIRECTORY + "/runtime.json"])["generation"]),
             restore_services=system.restore_services, service_state=system.service_state(services),
             label="update " + args.version)
         output({"transaction": identifier, "version": args.version})

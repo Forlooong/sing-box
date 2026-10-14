@@ -77,15 +77,18 @@ TOPICS = {
   NODE_ID 替换为 sb node list 中的 id；订阅整体改名请用 sb sub name。
 
 添加与导入
+  sb node add --name "第二个 REALITY"
   sb node add --name "备用 HY2" --protocol hysteria2 --port 24443
   sb node import --file /root/links.txt --name "外部节点"
   add 创建本机节点，需确保对应端口可从公网访问。其他协议参数见 sb node add -h。
+  默认 REALITY 继续使用 TCP 443；相同 SNI 共用监听密钥和独立 UUID，新 SNI 自动分配内部监听。
+  同 SNI 的传输和路径须一致；不同组合请指定独立公网端口或另一个已受管 SNI。
   import 从本地文件导入分享链接；不抓取远程订阅。批量导入使用链接各自的节点名称。
 
 修改、停用与删除
   sb node set NODE_ID --file /root/node-settings.json  # 修改公开配置
   sb node credentials NODE_ID --file /root/node-credentials.json  # 修改凭证
-  sb node disable NODE_ID            # 停用节点；本机节点停止监听
+  sb node disable NODE_ID            # 停用节点；本机撤销其凭证，共用监听的其他用户保留
   sb node enable NODE_ID             # 重新启用节点
   sb node remove NODE_ID             # 删除非迁移保留的节点
   sb node retire NODE_ID             # 明确停止迁移保留的旧节点监听
@@ -113,9 +116,12 @@ TOPICS = {
 
   sb rules status                   # 查看当前规则版本与启用状态
   sb rules update                   # 手动检查并应用已构建的新规则
+  sb rules update --channel v2      # 显式迁移到 balanced-v2 分流和 DNS 策略
 
 规则来自 Forlooong/clash-rules-mrs。服务器每 15 分钟检查一次候选构建；只下载新版本。
+旧安装默认 v1；迁移成功后定时更新沿用 v2，不会自动跨通道升级。
 下载、校验或客户端配置验证失败时继续使用上一份可用规则。
+迁移事务可通过 sb transaction rollback 恢复原规则、DNS、模板和通道。
 首次安装使用 --without-rules 跳过规则后，也可通过 sb rules update 启用。
 参数详情：sb rules update -h。
 """,

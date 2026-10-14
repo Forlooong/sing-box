@@ -25,3 +25,4 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y python3-yaml python3-cryptography curl gnupg openssl
       - run: python3 tests/integration_core.py --traffic
+      - run: python3 tests/integration_soak_client.py

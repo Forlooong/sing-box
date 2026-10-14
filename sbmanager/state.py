@@ -101,7 +101,7 @@ def create(site: str, subscription: str, email: str, path="private"):
                   "sub_http": 8767, "hy2": 443},
         "site": {"root": "/var/www/sb-site"},
         "subscription": {"name": DEFAULT_SUBSCRIPTION_NAME, "prefix": prefix(path), "aliases": [], "metadata": {}, "template": {}},
-        "nodes": [], "rules": {"enabled": True, "active_build": None},
+        "nodes": [], "rules": {"enabled": True, "active_build": None, "channel": "v1"},
         "legacy": {"entries": [], "files": {}, "services": []},
     }
     return state, {"subscription_token": secrets.token_urlsafe(32), "nodes": {}}
@@ -110,6 +110,9 @@ def create(site: str, subscription: str, email: str, path="private"):
 def validate(state, secret):
     if state.get("schema_version") != 1:
         raise ValueError("Unsupported state schema; use a compatible release")
+    channel = state.get("rules", {}).get("channel", "v1")
+    if not isinstance(channel, str) or channel not in {"v1", "v2"}:
+        raise ValueError("Unsupported rule channel; choose v1 or v2")
     uuid.UUID(state["installation_id"])
     d = state["domains"]
     sites = [domain(d["site"])] + [domain(x) for x in d["site_aliases"]]

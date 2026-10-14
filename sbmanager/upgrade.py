@@ -1,7 +1,8 @@
-"""Prepare artifacts using the candidate release, without changing live files.
+"""Prepare candidate artifacts and publish the independent recovery entry.
 
 Invoked by the existing manager with a protected output directory. Runtime
 schema changes must be explicitly implemented here by their release author.
+Proxy configuration and runtime changes remain inside the later transaction.
 """
 import argparse
 import json
@@ -29,11 +30,17 @@ def prepare(root, destination, source):
         cache = state.logical_path(root, "/var/lib/sb/rules")
         build = snapshot[0]["build_id"]
         config = files["/var/lib/sb/subscription/clash.yaml"]
-        receipt = rules.validate(cache, build, config, binary)
+        receipt = rules.validate(cache, build, config, binary,
+                                 override=saved["subscription"].get("template", {}))
         files.update(rules.activation_artifacts(cache, build, receipt, config))
         binary.unlink()
     for name, data in files.items():
         atomic(state.logical_path(destination, name), data)
+    # This also protects the first update initiated by a legacy manager whose
+    # Transaction still replaces runtime modules one by one. Publish the safe
+    # entry only after candidate compilation/download/validation has succeeded.
+    from . import recovery
+    recovery.install(root, files, update_launcher=True)
     atomic(destination / "files.json", state.encode(sorted(files)))
 
 
