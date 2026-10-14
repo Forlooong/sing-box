@@ -110,7 +110,9 @@ def _loaded_core(directory, core, config, local_snapshot, api_port):
                 try:
                     with opener.open(api + "/providers/rules", timeout=.3) as response:
                         loaded = json.load(response)["providers"]
-                    if set(config["rule-providers"]) <= set(loaded):
+                    # The REST listener may accept requests before provider
+                    # initialization finishes; its initial payload can be null.
+                    if isinstance(loaded, dict) and set(config["rule-providers"]) <= set(loaded):
                         break
                 except (OSError, KeyError):
                     pass
