@@ -14,6 +14,7 @@ def subscription_only(args, state, secret, extra):
         value = copy.deepcopy(value)
         value.pop('subscription', None)
         value['rules'].pop('active_build', None)
+        value['rules'].pop('channel', None)
         return value
     def node_secrets(value):
         return {key: item for key, item in value.items() if key != 'subscription_token'}

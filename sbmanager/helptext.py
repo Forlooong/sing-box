@@ -116,9 +116,12 @@ TOPICS = {
 
   sb rules status                   # 查看当前规则版本与启用状态
   sb rules update                   # 手动检查并应用已构建的新规则
+  sb rules update --channel v2      # 显式迁移到 balanced-v2 分流和 DNS 策略
 
 规则来自 Forlooong/clash-rules-mrs。服务器每 15 分钟检查一次候选构建；只下载新版本。
+旧安装默认 v1；迁移成功后定时更新沿用 v2，不会自动跨通道升级。
 下载、校验或客户端配置验证失败时继续使用上一份可用规则。
+迁移事务可通过 sb transaction rollback 恢复原规则、DNS、模板和通道。
 首次安装使用 --without-rules 跳过规则后，也可通过 sb rules update 启用。
 参数详情：sb rules update -h。
 """,

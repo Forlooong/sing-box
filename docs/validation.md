@@ -3,6 +3,17 @@
 四项后续稳定性修复、订阅发布解耦及客户端持续验证见[稳定性记录](stability-2026-10-13.md)。
 下文保留此前各轮测试的时间、数量和范围，不将历史结果解释为新版本验收。
 
+未发布的真实 balanced-v2 构建可直接从包含 `build-manifest.json` 的目录验收：
+
+```sh
+python3 tests/integration_core.py --local-snapshot ../clash-rules-mrs/balanced-out \
+  --snapshot-only --report .test-runtime/local-v2-acceptance.json
+```
+
+入口仅把下载传输改为读取本地文件，按真实 manifest 摘要构造临时候选指针，执行正式 `stage → load → subscription.render → validate → activation_artifacts`。它保留实际 MRS、inline 规则与最终托管 DNS，使用一条 loopback dummy 节点及原有单选择组；还会启动固定 Mihomo、逐项强制加载 provider，并核对运行规则顺序。负向检查包括 manifest/产物哈希破坏、验证后订阅字节修改、DNS 解析器和优先级改变、路由顺序改变。输入目录不修改，测试不发布候选、不连接 VPS、不使用私人节点、不改变系统代理或 DNS。固定核心从本地缓存读取；缓存缺失时才获取并校验官方发布包。
+
+JSON 报告绑定具体 build-id、manifest 摘要和上游审计摘要。成功结果表示该快照通过本地消费、加载及配置完整性验收，不表示公网代理、实际 DNS 上游流量或特定运营商的直连质量已验证。`--snapshot-only` 不重复已有的 20 种协议检查和 Nginx 流量验收；省略它可以一并执行常规核心检查。
+
 后续已完成一台 Debian 12 amd64 服务器的真实安装、证书签发/续期演练、公网 REALITY/HY2 与运维验收；订阅名称和帮助修复后，WSL 与服务器最终单元回归均为 128 项。完整结果见 [测试服务器验收](server-validation-2026-10-13.md)。下文保留此前 WSL 隔离验证的具体范围。
 
 2026-10-13 在 WSL Ubuntu 22.04、Linux amd64 上执行隔离验证。WSL 在此仅作为开发测试环境；目标新安装系统仍为 Debian 12/13 或 Ubuntu 24.04，不能把本次结果解释为这些系统及 arm64 的安装验收。

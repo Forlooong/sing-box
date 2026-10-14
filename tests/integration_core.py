@@ -2,6 +2,7 @@
 """Isolated real-core checks; no apt, systemd, firewall or system CA changes.
 
 Run on Linux: python3 tests/integration_core.py [--remote-rules]
+For an unpublished real v2 build: --local-snapshot DIR --snapshot-only
 Verified release archives are cached under .test-runtime; all generated credentials,
 certificates and runtime files live in a private TemporaryDirectory and are removed.
 """
@@ -386,17 +387,18 @@ def remap(value, cert, key, site):
     return value
 
 
-def synthetic_snapshot(cache, mihomo):
+def synthetic_snapshot(cache, mihomo, version=1):
     """Build deterministic valid MRS fixtures for all four source sections.
 
     This proves assembly/core compatibility; it does not claim upstream releases
     or production domain coverage. --remote-rules additionally validates live data.
     """
-    tag = "rules-integration-fixture"
+    tag = "rules-integration-fixture" + ("-v2" if version == 2 else "")
     directory = cache / tag
     directory.mkdir(parents=True)
     providers, files = {}, {}
-    for name, (rel, behavior) in snapshot.PROVIDERS.items():
+    registry = snapshot.V2_PROVIDERS if version == 2 else snapshot.PROVIDERS
+    for name, (rel, behavior) in registry.items():
         source = directory / "input.txt"
         source.write_text("192.0.2.0/24\n" if behavior == "ipcidr" else "fixture.example\n")
         target = directory / rel
@@ -405,14 +407,17 @@ def synthetic_snapshot(cache, mihomo):
         body = target.read_bytes()
         providers[name] = {"path": rel, "behavior": behavior, "format": "mrs"}
         files[rel] = {"size": len(body), "sha256": hashlib.sha256(body).hexdigest()}
-    inline = {"schema_version": 1, "build_id": tag, "sections": {name: [] for name in snapshot.SECTIONS}}
-    inline["sections"]["services"] = ["DOMAIN-KEYWORD,integration-fixture"]
+    sections = snapshot.V2_SECTIONS if version == 2 else snapshot.SECTIONS
+    inline = {"schema_version": version, "build_id": tag, "sections": {name: [] for name in sections}}
+    inline["sections"]["personal_direct" if version == 2 else "services"] = ["DOMAIN-KEYWORD,integration-fixture"]
     raw = json.dumps(inline).encode()
     (directory / "inline-rules.json").write_bytes(raw)
     files["inline-rules.json"] = {"size": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
-    manifest = {"schema_version": 1, "build_id": tag, "tag": tag, "created_at": int(time.time()),
+    manifest = {"schema_version": version, "build_id": tag, "tag": tag, "created_at": int(time.time()),
                 "fake_ip_pool": "198.18.0.0/16", "providers": providers, "files": files,
                 "sources": {name: {"fixture": True} for name in ("loyal", "acl", "meta", "personal")}}
+    if version == 2:
+        manifest.update(policy_version="balanced-v2", audit={"status": "passed", "manifest_sha256": "a" * 64})
     (directory / "build-manifest.json").write_text(json.dumps(manifest))
     return tag, rules.load(cache, tag)
 
@@ -447,7 +452,7 @@ def check(directory, cores, remote=False):
     public["rules"].update(enabled=True, active_build=tag)
     config = subscription.render(public, secret, rule_snapshot)[subscription.DIRECTORY + "/clash.yaml"]
     diagnostic = directory / "client-check.yaml"
-    diagnostic.write_text(yaml.safe_dump(rules.assemble(yaml.safe_load(config), *rule_snapshot, local_dir=cache / tag), allow_unicode=True))
+    diagnostic.write_text(yaml.safe_dump(rules.assemble(yaml.safe_load(config), *rule_snapshot, local_dir=cache / tag), allow_unicode=True, sort_keys=False))
     run([cores["mihomo"], "-t", "-d", directory, "-f", diagnostic])
     receipt = rules.validate(cache, tag, config, cores["mihomo"])
     rules.activation_artifacts(cache, tag, receipt, config)
@@ -473,10 +478,17 @@ def check(directory, cores, remote=False):
         manifest_path.write_bytes(original_manifest)
     result = {"server_configuration_checks": checked, "mihomo_complete_four_source_fixture": True,
               "malformed_mrs_refused": True, "live_upstream_rules": None, "end_to_end_traffic": False}
+    tag_v2, snapshot_v2 = synthetic_snapshot(cache, cores["mihomo"], version=2)
+    public["rules"].update(channel="v2", active_build=tag_v2)
+    config_v2 = subscription.render(public, secret, snapshot_v2)[subscription.DIRECTORY + "/clash.yaml"]
+    receipt_v2 = rules.validate(cache, tag_v2, config_v2, cores["mihomo"],
+                                override=public["subscription"].get("template", {}))
+    rules.activation_artifacts(cache, tag_v2, receipt_v2, config_v2)
+    result["mihomo_balanced_v2_dns_fixture"] = True
     if remote:
         tag = rules.stage(cache)
         actual = rules.load(cache, tag)
-        public["rules"]["active_build"] = tag
+        public["rules"].update(channel="v1", active_build=tag)
         config = subscription.render(public, secret, actual)[subscription.DIRECTORY + "/clash.yaml"]
         rules.validate(cache, tag, config, cores["mihomo"])
         result["live_upstream_rules"] = tag
@@ -487,17 +499,29 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--remote-rules", action="store_true", help="Also download and validate the current upstream candidate")
     parser.add_argument("--traffic", action="store_true", help="Verify signed Nginx package and run loopback REALITY/HY2 traffic")
+    parser.add_argument("--local-snapshot", type=Path, help="Validate an unpublished v2 build directory without accessing its rule URLs")
+    parser.add_argument("--snapshot-only", action="store_true", help="Run only --local-snapshot acceptance, using one isolated dummy node")
+    parser.add_argument("--report", type=Path, help="Save credential-free integration results as JSON")
     args = parser.parse_args()
     if sys.platform != "linux":
         parser.error("This harness requires Linux; it does not install a runtime")
+    if args.snapshot_only and (not args.local_snapshot or args.remote_rules or args.traffic):
+        parser.error("--snapshot-only requires --local-snapshot and cannot combine with --remote-rules/--traffic")
     os.umask(0o077)
     with tempfile.TemporaryDirectory(prefix="sb-core-integration-") as temporary:
         directory = Path(temporary)
         cores = binaries(directory)
-        result = check(directory, cores, args.remote_rules)
+        result = {} if args.snapshot_only else check(directory, cores, args.remote_rules)
+        if args.local_snapshot:
+            from integration_snapshot import check_local_snapshot
+            result["local_balanced_v2_snapshot"] = check_local_snapshot(directory, cores["mihomo"], args.local_snapshot)
         if args.traffic:
             result["end_to_end_traffic"] = traffic(directory, cores)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    report = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(report, encoding="utf-8")
+    print(report, end="")
 
 
 if __name__ == "__main__":

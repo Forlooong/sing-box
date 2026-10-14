@@ -23,6 +23,18 @@ for direction in ("direct", "proxy"):
     for behavior in ("domain", "ipcidr"):
         n = "personal-" + direction + "-" + behavior
         PROVIDERS[n] = ("personal/" + n + ".mrs", behavior)
+V2_SECTIONS = ("personal_direct", "personal_proxy", "private", "services", "direct")
+V2_PROVIDERS = {
+    "private-domain": ("meta/private-domain.mrs", "domain"),
+    "private-ipcidr": ("meta/private-ipcidr.mrs", "ipcidr"),
+    "services-proxy": ("services/services-proxy.mrs", "domain"),
+    "telegram-ipcidr": ("meta/telegram-ipcidr.mrs", "ipcidr"),
+    "cn-domain": ("meta/cn-domain.mrs", "domain"),
+    "cn-ipcidr": ("meta/cn-ipcidr.mrs", "ipcidr"),
+}
+V2_REQUIRED = set(V2_PROVIDERS)
+V2_PROVIDERS.update({n: p for n, p in PROVIDERS.items() if n.startswith("personal-")})
+V2_META_FILES = {"inline-rules.json", "build-report.json", "sources.json", "NOTICE.md"}
 META_FILES = {"inline-rules.json", "build-report.json", "cidr-report.json",
               "conflict-report.json", "sources.json", "licenses/NOTICE.md", "licenses/acl-LICENSE",
               "licenses/acl-README.md", "licenses/loyal-README.md", "licenses/meta-README.md",
@@ -50,19 +62,23 @@ def atomic(path, value):
             os.unlink(name)
 
 def validate_manifest(m):
-    if m.get("schema_version") != 1 or not TAG.fullmatch(m.get("build_id", "")) or m.get("tag") != m["build_id"]:
+    version = m.get("schema_version")
+    if type(version) is not int or version not in (1, 2) or not TAG.fullmatch(m.get("build_id", "")) or m.get("tag") != m["build_id"]:
         raise ValueError("Invalid snapshot identity")
+    if version == 2 and m.get("policy_version") != "balanced-v2":
+        raise ValueError("Unknown v2 policy")
     if m.get("fake_ip_pool") != "198.18.0.0/16":
         raise ValueError("Incompatible Fake-IP pool")
     providers = m.get("providers", {})
-    required = set(BASE) | {"acl-unban-domain", "services-proxy"}
-    if not required <= set(providers) <= set(PROVIDERS):
+    registry = V2_PROVIDERS if version == 2 else PROVIDERS
+    required = V2_REQUIRED if version == 2 else set(BASE) | {"acl-unban-domain", "services-proxy"}
+    if not required <= set(providers) <= set(registry):
         raise ValueError("Incomplete/unexpected MRS providers")
     for name, provider in providers.items():
-        rel, behavior = PROVIDERS[name]
+        rel, behavior = registry[name]
         if provider != {"path": rel, "behavior": behavior, "format": "mrs"}:
             raise ValueError("Invalid provider schema: " + name)
-    allowed = {p[0] for p in PROVIDERS.values()} | META_FILES
+    allowed = {p[0] for p in registry.values()} | (V2_META_FILES if version == 2 else META_FILES)
     files = m.get("files", {})
     if not {p["path"] for p in providers.values()} | {"inline-rules.json"} <= set(files):
         raise ValueError("Missing registered file")
@@ -75,14 +91,29 @@ def validate_manifest(m):
             raise ValueError("Bad checksum")
     if sum(x["size"] for x in files.values()) > 256 * 1024 * 1024:
         raise ValueError("Snapshot too large")
+    if version == 2:
+        audit = m.get("audit", {})
+        if audit.get("status") != "passed" or not re.fullmatch("[a-f0-9]{64}", audit.get("manifest_sha256", "")):
+            raise ValueError("Missing successful complete-source audit")
+        if sum(x["size"] for x in files.values()) > 8 * 1024 * 1024:
+            raise ValueError("Runtime v2 snapshot exceeds 8 MiB; keep full audit separate")
     return m
 
 def validate_inline(m, inline):
-    if inline.get("schema_version") != 1 or inline.get("build_id") != m["build_id"]:
+    if inline.get("schema_version") != m["schema_version"] or inline.get("build_id") != m["build_id"]:
         raise ValueError("Inline rules from another build")
     sections = inline.get("sections", {})
-    if set(sections) != set(SECTIONS):
+    if set(sections) != set(V2_SECTIONS if m["schema_version"] == 2 else SECTIONS):
         raise ValueError("Unknown/missing inline section")
+    index = inline.get("domain_index")
+    if m["schema_version"] == 2 and index is not None:
+        expected = {n for n, p in m["providers"].items() if p["behavior"] == "domain"}
+        if not isinstance(index, dict) or set(index) != expected:
+            raise ValueError("Incomplete DNS domain index")
+        for name, values in index.items():
+            if not isinstance(values, list) or not values or any(
+                    not isinstance(v, str) or not v or len(v) > 255 or any(c in v for c in ",\r\n /\\") for v in values):
+                raise ValueError("Invalid DNS domain index: " + name)
     for name, rules in sections.items():
         if not isinstance(rules, list) or len(rules) > 10000:
             raise ValueError("Invalid inline list")
@@ -126,7 +157,8 @@ def assemble(doc, m, inline, local_dir=None):
              "IP-CIDR6,::1/128,DIRECT,no-resolve"]
     def provider(name, action):
         if name in providers:
-            suffix = ",no-resolve" if m["providers"][name]["behavior"] == "ipcidr" and not name.startswith("personal-") else ""
+            resolve = name.startswith("personal-") or (m["schema_version"] == 2 and name == "cn-ipcidr")
+            suffix = ",no-resolve" if m["providers"][name]["behavior"] == "ipcidr" and not resolve else ""
             rules.append("RULE-SET," + name + "," + action + suffix)
     def section(name, action):
         for rule in inline["sections"][name]:
@@ -138,6 +170,19 @@ def assemble(doc, m, inline, local_dir=None):
         for behavior in ("domain", "ipcidr"):
             provider("personal-" + direction + "-" + behavior, action)
         section("personal_" + direction, action)
+    if m["schema_version"] == 2:
+        provider("private-domain", "DIRECT")
+        provider("private-ipcidr", "DIRECT")
+        section("private", "DIRECT")
+        provider("services-proxy", group)
+        section("services", group)
+        provider("telegram-ipcidr", group)
+        provider("cn-domain", "DIRECT")
+        section("direct", "DIRECT")
+        provider("cn-ipcidr", "DIRECT")
+        rules.append("MATCH," + group)
+        doc["rule-providers"], doc["rules"] = providers, rules
+        return doc
     provider("private", "DIRECT")
     provider("lancidr", "DIRECT")
     section("private", "DIRECT")
@@ -161,13 +206,6 @@ def assemble(doc, m, inline, local_dir=None):
     provider("cncidr", "DIRECT")
     rules.append("MATCH," + group)
     doc["rule-providers"], doc["rules"] = providers, rules
-    doc["tun"] = {"enable": False}
-    skip = doc.get("sniffer", {}).get("skip-dst-address")
-    if skip is not None and "100.64.0.0/10" not in skip:
-        skip.append("100.64.0.0/10")
-    if dns.get("proxy-server-nameserver-policy") and all(
-            v == dns.get("proxy-server-nameserver") for v in dns["proxy-server-nameserver-policy"].values()):
-        dns.pop("proxy-server-nameserver-policy")
     return doc
 
 def download(url, maximum, deadline):
@@ -225,6 +263,11 @@ def refresh(state, candidate_url=REPO + "release/candidate.json"):
     if hashlib.sha256(raw).hexdigest() != candidate["manifest_sha256"]:
         raise ValueError("Candidate manifest checksum mismatch")
     m = validate_manifest(json.loads(raw))
+    expected_version = 2 if candidate_url.endswith("candidate-v2.json") else 1
+    if candidate.get("schema_version") != expected_version or m["schema_version"] != expected_version:
+        raise ValueError("Candidate channel/schema mismatch")
+    if expected_version == 2 and candidate.get("policy_version") != m["policy_version"]:
+        raise ValueError("Candidate policy mismatch")
     if m["build_id"] != tag:
         raise ValueError("Candidate identity mismatch")
     previous = None
@@ -242,7 +285,7 @@ def refresh(state, candidate_url=REPO + "release/candidate.json"):
         try:
             (stage / "build-manifest.json").write_bytes(raw)
             for rel, expected in m["files"].items():
-                old = previous["files"].get(rel) if previous else None
+                old = previous["files"].get(rel) if previous and previous["schema_version"] == m["schema_version"] else None
                 if old and expected["size"] > old["size"] * 2:
                     raise ValueError("Artifact size more than doubled")
                 target = stage / rel
@@ -286,7 +329,8 @@ def main():
     args = parser.parse_args()
     state = Path(args.state)
     if args.command == "refresh":
-        if args.candidate_url not in {REPO + "release/candidate.json", REPO + "candidates/candidate.json"}:
+        if args.candidate_url not in {REPO + branch + "/" + name for branch in ("release", "candidates")
+                                      for name in ("candidate.json", "candidate-v2.json")}:
             raise ValueError("Unapproved candidate source")
         print(refresh(state, args.candidate_url))
     elif args.command == "disable":

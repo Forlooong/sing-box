@@ -30,7 +30,8 @@ def prepare(root, destination, source):
         cache = state.logical_path(root, "/var/lib/sb/rules")
         build = snapshot[0]["build_id"]
         config = files["/var/lib/sb/subscription/clash.yaml"]
-        receipt = rules.validate(cache, build, config, binary)
+        receipt = rules.validate(cache, build, config, binary,
+                                 override=saved["subscription"].get("template", {}))
         files.update(rules.activation_artifacts(cache, build, receipt, config))
         binary.unlink()
     for name, data in files.items():

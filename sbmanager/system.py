@@ -194,9 +194,12 @@ def validate_subscription_candidate(stage, *, root=Path("/"), snapshot_dir=None)
             from . import rules
             directory = Path(snapshot_dir)
             manifest, inline = rules.load(directory.parent, directory.name)
-            value = rules.assemble(value, manifest, inline, local_dir=directory)
+            state_file = logical_path(stage, "/etc/sb/state.json")
+            override = json.loads(state_file.read_bytes()).get("subscription", {}).get("template", {}) if state_file.exists() else None
+            rules.validate_assembly(value, manifest, inline, override=override)
+            value = rules.assemble(value, manifest, inline, local_dir=directory, override=override)
         check = stage / "mihomo-check.yaml"
-        atomic(check, yaml.safe_dump(value, allow_unicode=True).encode())
+        atomic(check, yaml.safe_dump(value, allow_unicode=True, sort_keys=False).encode())
         mihomo = logical_path(stage, "/opt/sb/bin/mihomo")
         if not mihomo.exists():
             mihomo = logical_path(root, "/opt/sb/bin/mihomo")

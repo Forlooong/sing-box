@@ -267,5 +267,6 @@ class Transaction:
             rules_state = json.loads(previous_state.read_bytes()).get("rules", {})
             if rules_state.get("enabled"):
                 from . import rules
-                rules.load(logical_path(self.root, "/var/lib/sb/rules"), rules_state.get("active_build"))
+                rules.load(logical_path(self.root, "/var/lib/sb/rules"), rules_state.get("active_build"),
+                           channel=rules_state.get("channel", "v1"))
         self._restore(folder, record, restore_services)

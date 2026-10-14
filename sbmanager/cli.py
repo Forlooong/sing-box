@@ -89,6 +89,8 @@ def parser():
     rules.add_parser("status")
     update = rules.add_parser("update", help="检查、校验并激活新规则快照")
     update.add_argument("--scheduled", action="store_true")
+    update.add_argument("--channel", choices=("v1", "v2"),
+                        help="显式迁移规则通道；省略时沿用当前通道，旧安装默认 v1")
     cert = commands.add_parser("cert").add_subparsers(dest="action", required=True)
     cert.add_parser("status")
     cert.add_parser("renew")
@@ -257,7 +259,8 @@ def snapshot_for(root, state):
     if not state["rules"].get("enabled"):
         return None
     from . import rules
-    return rules.load(registry.logical_path(root, "/var/lib/sb/rules"), state["rules"].get("active_build"))
+    return rules.load(registry.logical_path(root, "/var/lib/sb/rules"), state["rules"].get("active_build"),
+                      channel=state["rules"].get("channel", "v1"))
 
 
 def publish(args, state, secret, *, extra=None, snapshot=None, label="change", commit=lambda: None):
@@ -277,7 +280,8 @@ def publish(args, state, secret, *, extra=None, snapshot=None, label="change", c
             from . import rules
             cache = registry.logical_path(args.root, "/var/lib/sb/rules")
             config = files["/var/lib/sb/subscription/clash.yaml"]
-            receipt = rules.validate(cache, snapshot[0]["build_id"], config, Path("/opt/sb/bin/mihomo"))
+            receipt = rules.validate(cache, snapshot[0]["build_id"], config, Path("/opt/sb/bin/mihomo"),
+                                     override=state["subscription"].get("template", {}))
             files.update(rules.activation_artifacts(cache, snapshot[0]["build_id"], receipt, config))
     generation = json.loads(files[subscription.DIRECTORY + "/runtime.json"])["generation"]
     def validate(stage):
@@ -580,18 +584,21 @@ def execute(args):
         from . import rules
         cache = registry.logical_path(args.root, "/var/lib/sb/rules")
         if args.action == "status":
-            output(state["rules"])
+            output(dict(state["rules"], channel=state["rules"].get("channel", "v1")))
             return
-        build = rules.stage(cache)
-        if build == state["rules"].get("active_build") and state["rules"].get("enabled"):
+        channel = args.channel or state["rules"].get("channel", "v1")
+        build = rules.stage(cache, channel=channel)
+        if (build == state["rules"].get("active_build") and state["rules"].get("enabled")
+                and channel == state["rules"].get("channel", "v1")):
             if not args.scheduled:
                 output({"unchanged": build})
             return
-        snapshot = rules.load(cache, build)
-        state["rules"].update(enabled=True, active_build=build)
+        snapshot = rules.load(cache, build, channel=channel)
+        state["rules"].update(enabled=True, active_build=build, channel=channel)
         if args.offline:
             raise ValueError("Rule activation requires actual Mihomo validation")
         result["rules_build"] = build
+        result["rules_channel"] = channel
         result["transaction"] = publish(args, state, secret, extra=extra, snapshot=snapshot, label="rules update")
         output(result)
         return

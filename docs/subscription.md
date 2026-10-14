@@ -70,10 +70,19 @@ dns:
 ```sh
 sb rules status
 sb rules update
+sb rules update --channel v2
 sb check
 ```
 
-每个构建存放在 `/var/lib/sb/rules/<build_id>/`。候选 manifest 必须记录四个来源，文件路径、尺寸及 SHA-256 校验通过后才能暂存；同一 tag 内容变化会被拒绝。随后使用实际 Mihomo 核心验证完整生成配置，事务共同切换订阅与 active 指针。网络失败、哈希不符、异常膨胀或配置失败均保留上一份可用配置。缓存保留当前/待激活构建、最新五份，以及不足 30 天的构建。
+安装和历史状态默认使用 v1 的 `release/candidate.json`。`sb rules update --channel v2` 是显式迁移入口，只读取独立的 `release/candidate-v2.json`；候选与快照都须为 schema 2、`policy_version: balanced-v2`。成功后 `state.rules.channel` 持久化为 v2，后续普通更新和定时器沿用这个通道。升级管理脚本本身不会把 v1 自动迁到 v2。
+
+balanced-v2 由同一最终编译步骤生成分流和 DNS：个人规则优先、私有网络直连、已知代理服务走代理、国内规则直连，其余走代理；默认不挂广告拒绝集。境外直连域名使用经代理连接的可信 DoH 解析，业务连接仍保持 DIRECT；已知国内域名使用直连的加密 DNS，节点 bootstrap 独立于代理，解析失败不会暗中回退到明文 DNS 或把个人直连改成代理。Fake-IP 下国内 IP 兜底需要解析，未知域名的这一解析也先使用可信 DNS。手机 App 可用不能证明桌面主站可直连；例如 DNS 正确后仍发生 TLS reset，规则不能保证消除此网络限制。
+
+v2 只管理 DNS 的解析器、相关选项和有序 `nameserver-policy`，保留 TUN、监听地址、sniffer、日志和其他客户端设置；不自动开启 TUN。模板中旧的自动 DNS 分流会按已知兼容形式迁移，可能绕过策略的自定义覆盖会拒绝发布。原始模板覆盖仍保存在状态中，v1 编译不改 DNS。实际配置以完整订阅 YAML 为准；模板查看命令显示的是基础模板和管理员覆盖，尚未包含依赖规则快照的托管 DNS。系统代理模式仅覆盖进入 Mihomo 的流量，不承诺替未接管应用、系统 DNS 或浏览器自带 DoH 防泄露。
+
+每个构建存放在 `/var/lib/sb/rules/<build_id>/`。候选 manifest 必须记录四个来源，文件路径、尺寸及 SHA-256 校验通过后才能暂存；同一 tag 内容变化会被拒绝。v2 还须携带成功完整来源审计的哈希引用，运行时文件总量不超过 8 MiB。随后使用实际 Mihomo 核心验证完整生成配置，验证 DNS 字段和策略顺序，并将完整配置哈希绑定到激活凭据；事务共同切换订阅、通道与 active 指针。网络失败、哈希不符、异常膨胀、配置失败或订阅重载失败均保留上一份可用配置。缓存保留当前/待激活构建、最新五份、不足 30 天的构建，以及仍可回滚事务引用的构建。
+
+迁移成功会返回 transaction ID。如需恢复迁移前状态，使用 `sb transaction rollback <ID>`；若有更新的普通配置事务，须按倒序先回滚。恢复包括原始模板、生成 YAML 中的 DNS、规则通道和 active/validation 文件；已撤销的订阅令牌仍不会恢复。`--channel v1` 是基于当前模板重新生成 v1，不能代替恢复历史状态的事务回滚。
 
 客户端 MRS 地址仍直接指向 GitHub 的具体构建 tag；服务器不作为公开规则镜像。SHA-256 检查保证下载结果与 manifest 一致，但 manifest 与文件同源，不能替代独立供应链签名。
 
